@@ -616,7 +616,7 @@ async function recarregarItem(itemId){
   if(!t||!s||!lid)return;
   try{
     const camposSel=colunas.map(c=>c.name).join(',');
-    const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/items/${itemId}?$expand=fields(select=${camposSel})`,{headers:{Authorization:'Bearer '+t}});
+    const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/items/${itemId}?expand=fields(select=${camposSel})`,{headers:{Authorization:'Bearer '+t}});
     if(!r.ok)return;
     const d=await r.json();
     const idx=itens.findIndex(i=>i.id===itemId);
@@ -656,7 +656,8 @@ function renderParametros(){
     `Site: <b>${escapeHtml(SP_HOSTNAME+SP_SITE_PATH)}</b><br>`+
     `Lista: <b>${escapeHtml(LISTA_NOME)}</b><br>`+
     `Última sincronização: <b>${ultimaSync?new Date(ultimaSync).toLocaleString('pt-BR'):'—'}</b><br>`+
-    `Colunas carregadas: <b>${colunas.length}</b> · Registros: <b>${itens.length}</b>`;
+    `Colunas carregadas: <b>${colunas.length}</b> · Registros: <b>${itens.length}</b>`+
+    (ultimoErro?`<br><span style="color:var(--erro);">⚠ Último erro: ${escapeHtml(ultimoErro)}</span>`:'');
   renderUsuarios();
 }
 
@@ -720,36 +721,43 @@ async function getListId(){
   }catch(e){return null;}
 }
 const COLUNAS_BLOQUEADAS=new Set(['ContentType','Attachments','Edit','DocIcon','LinkTitleNoMenu','LinkTitle','ItemChildCount','FolderChildCount','_ColorTag','AppAuthor','AppEditor','ComplianceAssetId','_ComplianceFlags','_ComplianceTag','_ComplianceTagWrittenTime','_ComplianceTagUserId','WorkflowVersion','_UIVersionString','InstanceID','Order','GUID','WorkflowInstanceID','ID']);
+let ultimoErro=null;
 async function getListColumns(){
   const t=await getGraphToken();const s=await getSiteId();const lid=await getListId();
-  if(!t||!s||!lid)return [];
+  if(!t||!s||!lid){if(!lid)ultimoErro='Lista "'+LISTA_NOME+'" não encontrada no site (confira o nome exato ou as permissões do app).';return [];}
   try{
     let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/columns?$top=200`;
     let out=[];
     while(url){
       const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
-      if(!r.ok)break;
+      if(!r.ok){let corpo='';try{corpo=await r.text();}catch(e){}ultimoErro=`Colunas: HTTP ${r.status} — ${corpo.slice(0,300)}`;return [];}
       const d=await r.json();
       out=out.concat(d.value||[]);
       url=d['@odata.nextLink']||null;
     }
+    ultimoErro=null;
     return out.filter(c=>!c.hidden&&!COLUNAS_BLOQUEADAS.has(c.name));
-  }catch(e){return [];}
+  }catch(e){ultimoErro='Colunas: '+(e&&e.message?e.message:'erro desconhecido');return [];}
 }
 async function fetchAllItems(){
   const t=await getGraphToken();const s=await getSiteId();const lid=await getListId();
   if(!t||!s||!lid)return null;
   const camposSel=colunas.map(c=>c.name).join(',');
-  let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/items?$expand=fields(select=${camposSel})&$top=200`;
+  let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/items?expand=fields(select=${camposSel})&$top=200`;
   let out=[],paginas=0;
   while(url&&paginas<30){
     const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
-    if(!r.ok)break;
+    if(!r.ok){
+      let corpo='';try{corpo=await r.text();}catch(e){}
+      ultimoErro=`Itens: HTTP ${r.status} — ${corpo.slice(0,300)}`;
+      return null; // erro real de requisição — nunca tratar como "lista vazia"
+    }
     const d=await r.json();
     out=out.concat((d.value||[]).map(it=>({id:it.id,eTag:it.eTag,fields:it.fields||{}})));
     url=d['@odata.nextLink']||null;
     paginas++;
   }
+  ultimoErro=null;
   return out;
 }
 async function graphPatchItemFields(itemId,camposAlterados,etag){
@@ -788,10 +796,10 @@ async function sincronizarLista(silencioso){
   if(!msAccount||carregando)return;
   carregando=true;setSyncStatus('☁ carregando…','saving');
   const cols=await getListColumns();
-  if(!cols.length){setSyncStatus('⚠ não encontrei a lista','warn');carregando=false;if(!silencioso)toast('Não encontrei a lista "'+LISTA_NOME+'" no site (nome ou permissão). Veja Parâmetros.');return;}
+  if(!cols.length){setSyncStatus('⚠ não encontrei a lista','warn');carregando=false;if(!silencioso)toast('Não encontrei a lista "'+LISTA_NOME+'" no site. Veja o erro em Parâmetros.');return;}
   colunas=cols;
   const its=await fetchAllItems();
-  if(its===null){setSyncStatus('⚠ falha ao carregar itens','warn');carregando=false;return;}
+  if(its===null){setSyncStatus('⚠ falha ao carregar itens','warn');carregando=false;if(!silencioso)toast('Falha ao carregar os registros — veja o erro em Parâmetros. Os dados antigos em cache foram mantidos.');return;}
   itens=its;ultimaSync=new Date().toISOString();saveCache();
   carregando=false;setSyncStatus('☁ atualizado','ok');if(!silencioso)toast('Dados atualizados ('+itens.length+' registros).');
   renderAll();

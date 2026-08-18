@@ -93,7 +93,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
   .filtros-topo{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
   .filtros-topo select,.filtros-topo input[type=date]{border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.8rem;font-family:var(--fonte-corpo);background:#fffdf9;color:var(--texto);}
   .chart-card{padding:14px 16px 10px;}
-  .chart-wrap{position:relative;height:280px;}
+  .chart-wrap{position:relative;height:340px;}
   .toolbar-dados{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
   .toolbar-dados input[type=text]{flex:1;min-width:200px;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.86rem;font-family:var(--fonte-corpo);background:#fffdf9;color:var(--texto);}
   .toolbar-dados input[type=text]:focus{outline:2px solid var(--azul-claro);outline-offset:1px;}
@@ -147,10 +147,10 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <p class="pane-desc">Visão financeira da lista <b>Montagem Geral MCPO</b> — custo, negociado, recebido e resultado.</p>
     <div class="filtros-topo" id="filtros-topo-painel"></div>
     <div class="totals-strip" id="strip-painel"></div>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr));">
-      <div class="card chart-card"><h3>Resumo Obra <span class="h3-side">principais clientes × tipo</span></h3><div class="chart-wrap"><canvas id="chart-resumo-obra"></canvas></div></div>
-      <div class="card chart-card"><h3>Balanço Financeiro <span class="h3-side">por tipo</span></h3><div class="chart-wrap"><canvas id="chart-balanco"></canvas></div></div>
-      <div class="card chart-card"><h3>Custo por Categoria</h3><div class="chart-wrap"><canvas id="chart-custo-categoria"></canvas></div></div>
+    <div class="grid" style="grid-template-columns:1fr;">
+      <div class="card chart-card"><h3>Resumo Obra <span class="h3-side">principais clientes × tipo</span></h3><div class="chart-wrap" id="wrap-resumo-obra"><canvas id="chart-resumo-obra"></canvas></div></div>
+      <div class="card chart-card"><h3>Balanço Financeiro <span class="h3-side">por tipo</span></h3><div class="chart-wrap" id="wrap-balanco"><canvas id="chart-balanco"></canvas></div></div>
+      <div class="card chart-card"><h3>Custo por Categoria</h3><div class="chart-wrap" id="wrap-custo-categoria"><canvas id="chart-custo-categoria"></canvas></div></div>
     </div>
   </section>
 
@@ -158,16 +158,16 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <h2 class="pane-title">Regional</h2>
     <p class="pane-desc">Resultado (recebido − custo) por regional e por cliente.</p>
     <div class="filtros-topo" id="filtros-topo-regional"></div>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr));">
-      <div class="card chart-card"><h3>Resultado Regional</h3><div class="chart-wrap"><canvas id="chart-resultado-regional"></canvas></div></div>
-      <div class="card chart-card"><h3>Resultado por Cliente <span class="h3-side">top 15</span></h3><div class="chart-wrap"><canvas id="chart-resultado-cliente"></canvas></div></div>
+    <div class="grid" style="grid-template-columns:1fr;">
+      <div class="card chart-card"><h3>Resultado Regional</h3><div class="chart-wrap" id="wrap-resultado-regional"><canvas id="chart-resultado-regional"></canvas></div></div>
+      <div class="card chart-card"><h3>Resultado por Cliente <span class="h3-side">top 15</span></h3><div class="chart-wrap" id="wrap-resultado-cliente"><canvas id="chart-resultado-cliente"></canvas></div></div>
       <div class="card" id="card-status-regional" style="display:none;"></div>
     </div>
   </section>
 
   <section class="pane" id="pane-dados">
     <h2 class="pane-title">Dados</h2>
-    <p class="pane-desc">Todos os registros da lista. Clique no cabeçalho para ordenar. <span class="somente-admin">Como admin, você pode editar direto nas células, criar e excluir registros — a gravação acontece direto na lista do SharePoint.</span></p>
+    <p class="pane-desc">Todos os registros da lista. Clique no cabeçalho para ordenar. A coluna <b>Status</b> mostra o status atual da obra — mesmo valor em todas as linhas do cliente, calculado a partir do lançamento mais recente (marcado com <span class="reg R2">auto</span> nas demais linhas). <span class="somente-admin">Como admin, você pode editar direto nas células, criar e excluir registros — a gravação acontece direto na lista do SharePoint.</span></p>
     <div class="toolbar-dados">
       <input type="text" id="inp-busca-dados" placeholder="Buscar em qualquer coluna...">
       <div id="filtros-dados" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
@@ -288,6 +288,27 @@ function colCategoria(){return findCol([/^categoria$/i]);}
 function colRegional(){return findCol([/^regional$/i]);}
 function colData(){return findCol([/^data$/i]);}
 function colStatus(){return findCol([/^status$/i]);}
+/* Status "atual da obra": calculado por cliente a partir do lançamento mais recente
+   (maior DATA; sem DATA, o de maior ID). Não grava nada na lista — é só exibição,
+   sempre calculado a partir de TODOS os itens (ignora filtros de tela). */
+function statusAtualPorCliente(){
+  const cc=colCliente(),cs=colStatus(),cd=colData();
+  const resultado={};
+  if(!cc||!cs)return resultado;
+  const escolhido={};
+  itens.forEach(it=>{
+    const cli=String(it.fields[cc.name]||'');
+    if(!cli)return;
+    const dataItem=cd?new Date(it.fields[cd.name]):null;
+    const dataOrd=(dataItem&&!isNaN(dataItem))?dataItem.getTime():null;
+    const atual=escolhido[cli];
+    if(!atual){escolhido[cli]={item:it,dataOrd};return;}
+    if(dataOrd!=null&&(atual.dataOrd==null||dataOrd>atual.dataOrd)){escolhido[cli]={item:it,dataOrd};}
+    else if(dataOrd==null&&atual.dataOrd==null&&Number(it.id)>Number(atual.item.id)){escolhido[cli]={item:it,dataOrd:null};}
+  });
+  Object.entries(escolhido).forEach(([cli,info])=>{resultado[cli]={status:info.item.fields[cs.name],itemId:info.item.id};});
+  return resultado;
+}
 function valorTotalItem(fields){
   const ctv=colTotalValor();
   if(ctv&&fields[ctv.name]!=null&&fields[ctv.name]!=='')return n(fields[ctv.name]);
@@ -354,6 +375,12 @@ function renderFiltrosTopo(prefix){
 
 /* ============================ GRÁFICOS (Chart.js) ============================ */
 let chartResumoObra=null,chartBalanco=null,chartCustoCategoria=null,chartResultadoRegional=null,chartResultadoCliente=null;
+function brlCompacto(v){try{return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',notation:'compact',maximumFractionDigits:1}).format(v||0);}catch(e){return brl(v);}}
+function ajustarAlturaWrap(wrapId,qtdCategorias,porCategoria){
+  const wrap=document.getElementById(wrapId);if(!wrap)return;
+  wrap.style.height=Math.max(340,qtdCategorias*(porCategoria||34)+70)+'px';
+}
+function tooltipValorCompleto(){return {callbacks:{label:ctx=>` ${ctx.dataset.label||''}: ${brl(ctx.raw)}`}};}
 function renderGraficoResumoObra(base){
   const canvas=document.getElementById('chart-resumo-obra');if(!canvas||!window.Chart)return;
   const cc=colCliente(),ct=colTipo();
@@ -369,8 +396,9 @@ function renderGraficoResumoObra(base){
   const clientesOrdenados=Object.entries(porCliente).map(([cli,tipos])=>[cli,Object.values(tipos).reduce((a,b)=>a+b,0)]).sort((a,b)=>b[1]-a[1]).slice(0,12).map(x=>x[0]);
   const tiposPresentes=Array.from(new Set(base.map(it=>String(it.fields[ct.name]||'').toUpperCase().trim()).filter(Boolean)));
   const datasets=tiposPresentes.map(tp=>({label:tp,data:clientesOrdenados.map(cli=>(porCliente[cli]&&porCliente[cli][tp])||0),backgroundColor:corTipo(tp)}));
+  ajustarAlturaWrap('wrap-resumo-obra',clientesOrdenados.length,tiposPresentes.length>1?46:34);
   if(chartResumoObra)chartResumoObra.destroy();
-  chartResumoObra=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels:clientesOrdenados,datasets},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:10}}}},scales:{x:{ticks:{callback:v=>brl(v)}}}}});
+  chartResumoObra=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels:clientesOrdenados,datasets},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}},tooltip:tooltipValorCompleto()},scales:{x:{ticks:{callback:v=>brlCompacto(v)}},y:{ticks:{font:{size:11}}}}}});
 }
 function renderGraficoBalanco(base){
   const canvas=document.getElementById('chart-balanco');if(!canvas||!window.Chart)return;
@@ -380,7 +408,7 @@ function renderGraficoBalanco(base){
   base.forEach(it=>{const tp=String(it.fields[ct.name]||'(sem tipo)').toUpperCase().trim();porTipo[tp]=(porTipo[tp]||0)+n(it.fields[cv.name]);});
   const labels=Object.keys(porTipo),dados=labels.map(l=>porTipo[l]),cores=labels.map(corTipo);
   if(chartBalanco)chartBalanco.destroy();
-  chartBalanco=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Valor',data:dados,backgroundColor:cores}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>brl(v)}}}}});
+  chartBalanco=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Valor',data:dados,backgroundColor:cores}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipValorCompleto()},scales:{y:{ticks:{callback:v=>brlCompacto(v)}}}}});
 }
 function renderGraficoCustoCategoria(base){
   const canvas=document.getElementById('chart-custo-categoria');if(!canvas||!window.Chart)return;
@@ -393,8 +421,9 @@ function renderGraficoCustoCategoria(base){
   });
   const entradas=Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]);
+  ajustarAlturaWrap('wrap-custo-categoria',labels.length,34);
   if(chartCustoCategoria)chartCustoCategoria.destroy();
-  chartCustoCategoria=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Custo',data:dados,backgroundColor:'#c1541c'}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>brl(v)}}}}});
+  chartCustoCategoria=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Custo',data:dados,backgroundColor:'#c1541c'}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipValorCompleto()},scales:{x:{ticks:{callback:v=>brlCompacto(v)}},y:{ticks:{font:{size:11}}}}}});
 }
 function renderGraficoResultadoRegional(base){
   const canvas=document.getElementById('chart-resultado-regional');if(!canvas||!window.Chart)return;
@@ -412,7 +441,7 @@ function renderGraficoResultadoRegional(base){
   const entradas=Object.entries(porReg).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]),cores=dados.map(v=>v<0?'#a3312a':'#0a7517');
   if(chartResultadoRegional)chartResultadoRegional.destroy();
-  chartResultadoRegional=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Resultado',data:dados,backgroundColor:cores}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>brl(v)}}}}});
+  chartResultadoRegional=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Resultado',data:dados,backgroundColor:cores}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipValorCompleto()},scales:{y:{ticks:{callback:v=>brlCompacto(v)}}}}});
 }
 function renderGraficoResultadoCliente(base){
   const canvas=document.getElementById('chart-resultado-cliente');if(!canvas||!window.Chart)return;
@@ -429,21 +458,30 @@ function renderGraficoResultadoCliente(base){
   });
   const entradas=Object.entries(porCli).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,15).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]),cores=dados.map(v=>v<0?'#a3312a':'#0a7517');
+  ajustarAlturaWrap('wrap-resultado-cliente',labels.length,34);
   if(chartResultadoCliente)chartResultadoCliente.destroy();
-  chartResultadoCliente=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Resultado',data:dados,backgroundColor:cores}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>brl(v)}}}}});
+  chartResultadoCliente=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Resultado',data:dados,backgroundColor:cores}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipValorCompleto()},scales:{x:{ticks:{callback:v=>brlCompacto(v)}},y:{ticks:{font:{size:11}}}}}});
 }
 function renderCardStatus(base){
   const card=document.getElementById('card-status-regional');
-  const cs=colStatus();
-  if(!cs||!base.length){card.style.display='none';return;}
+  const cc=colCliente(),cs=colStatus();
+  if(!cc||!cs||!base.length){card.style.display='none';return;}
+  const statusMap=statusAtualPorCliente();
+  const clientesNoFiltro=new Set(base.map(it=>String(it.fields[cc.name]||'')).filter(Boolean));
   const contagem={};
-  base.forEach(it=>{let v=it.fields[cs.name];if(v===undefined||v===null||v==='')v='(vazio)';v=Array.isArray(v)?v.join(', '):String(v);contagem[v]=(contagem[v]||0)+1;});
-  const total=base.length;
+  clientesNoFiltro.forEach(cli=>{
+    let v=(statusMap[cli]&&statusMap[cli].status);
+    if(v===undefined||v===null||v==='')v='(vazio)';
+    v=Array.isArray(v)?v.join(', '):String(v);
+    contagem[v]=(contagem[v]||0)+1;
+  });
+  const total=clientesNoFiltro.size;
+  if(!total){card.style.display='none';return;}
   const linhas=Object.entries(contagem).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
     const pctv=total?Math.round(v/total*100):0;
-    return `<div style="margin-bottom:8px;"><div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:3px;"><span>${escapeHtml(k)}</span><span class="reg R1">${int(v)} · ${pctv}%</span></div><div class="bar"><span style="width:${pctv}%"></span></div></div>`;
+    return `<div style="margin-bottom:8px;"><div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:3px;"><span>${escapeHtml(k)}</span><span class="reg R1">${int(v)} cliente(s) · ${pctv}%</span></div><div class="bar"><span style="width:${pctv}%"></span></div></div>`;
   }).join('');
-  card.innerHTML=`<h3>Por Status</h3>${linhas}`;
+  card.innerHTML=`<h3>Por Status <span class="h3-side">status atual da obra, por cliente</span></h3>${linhas}`;
   card.style.display='';
 }
 
@@ -478,19 +516,34 @@ let paginaAtual=1;
 const PAGE_SIZE=50;
 let filtrosColuna={};
 function colunasFiltraveis(){return colunas.filter(c=>colType(c)==='choice'||colType(c)==='boolean');}
+/* Valor "efetivo" de uma célula: para a coluna Status, é o status atual do cliente
+   (calculado, replicado); para as demais, é o valor próprio do item. */
+function valorParaColuna(col,item,mapaStatus){
+  const cs=colStatus();
+  if(col===cs){
+    const cc=colCliente();
+    if(cc){
+      const cli=String(item.fields[cc.name]||'');
+      const info=mapaStatus&&mapaStatus[cli];
+      if(info)return info.status;
+    }
+  }
+  return item.fields[col.name];
+}
 function itensFiltrados(){
   let arr=itens;
+  const mapaStatus=statusAtualPorCliente();
   colunasFiltraveis().forEach(c=>{
     const sel=filtrosColuna[c.name];
-    if(sel){arr=arr.filter(it=>{let v=it.fields[c.name];if(colType(c)==='boolean')v=v?'Sim':'Não';v=Array.isArray(v)?v.join(', '):String(v??'');return v===sel;});}
+    if(sel){arr=arr.filter(it=>{let v=valorParaColuna(c,it,mapaStatus);if(colType(c)==='boolean')v=v?'Sim':'Não';v=Array.isArray(v)?v.join(', '):String(v??'');return v===sel;});}
   });
   if(filtroTexto){
     const q=filtroTexto.toLowerCase();
-    arr=arr.filter(it=>colunas.some(c=>fmtCell(c,it.fields[c.name]).toLowerCase().includes(q)));
+    arr=arr.filter(it=>colunas.some(c=>fmtCell(c,valorParaColuna(c,it,mapaStatus)).toLowerCase().includes(q)));
   }
   if(ordCol){
     const cc=ordCol;
-    arr=[...arr].sort((a,b)=>{const va=sortVal(cc,a.fields[cc.name]),vb=sortVal(cc,b.fields[cc.name]);if(va<vb)return ordAsc?-1:1;if(va>vb)return ordAsc?1:-1;return 0;});
+    arr=[...arr].sort((a,b)=>{const va=sortVal(cc,valorParaColuna(cc,a,mapaStatus)),vb=sortVal(cc,valorParaColuna(cc,b,mapaStatus));if(va<vb)return ordAsc?-1:1;if(va>vb)return ordAsc?1:-1;return 0;});
   }
   return arr;
 }
@@ -498,8 +551,9 @@ function renderFiltrosDados(){
   const wrap=document.getElementById('filtros-dados');
   const cols=colunasFiltraveis();
   if(!cols.length){wrap.innerHTML='';return;}
+  const mapaStatus=statusAtualPorCliente();
   wrap.innerHTML=cols.map(c=>{
-    const vals=Array.from(new Set(itens.map(it=>{let v=it.fields[c.name];if(colType(c)==='boolean')v=v?'Sim':'Não';return Array.isArray(v)?v.join(', '):(v??'');}).filter(v=>v!=='')));
+    const vals=Array.from(new Set(itens.map(it=>{let v=valorParaColuna(c,it,mapaStatus);if(colType(c)==='boolean')v=v?'Sim':'Não';return Array.isArray(v)?v.join(', '):(v??'');}).filter(v=>v!=='')));
     vals.sort();
     const atual=filtrosColuna[c.name]||'';
     return `<select data-filtro-col="${escapeHtml(c.name)}"><option value="">${escapeHtml(c.displayName)}: todos</option>${vals.map(v=>`<option value="${escapeHtml(v)}" ${v===atual?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`;
@@ -547,10 +601,13 @@ function renderDados(){
     document.getElementById('btn-pag-ant').disabled=true;document.getElementById('btn-pag-prox').disabled=true;
     return;
   }
+  const csCol=colStatus(),ccCol=colCliente();
+  const mapaStatus=statusAtualPorCliente();
   thead.innerHTML='<tr>'+colunas.map(c=>{
     const num=(colType(c)==='number'||colType(c)==='currency');
     const seta=ordCol===c?(ordAsc?' ▲':' ▼'):'';
-    return `<th class="${num?'r':''}" data-sort-col="${escapeHtml(c.name)}" style="cursor:pointer;">${escapeHtml(c.displayName)}${seta}</th>`;
+    const dica=(c===csCol)?' title="Status atual da obra — mesmo valor em todas as linhas do cliente; editável só no lançamento mais recente"':'';
+    return `<th class="${num?'r':''}" data-sort-col="${escapeHtml(c.name)}" style="cursor:pointer;"${dica}>${escapeHtml(c.displayName)}${seta}</th>`;
   }).join('')+(admin?'<th>Ações</th>':'')+'</tr>';
   thead.querySelectorAll('[data-sort-col]').forEach(th=>{
     th.addEventListener('click',()=>{
@@ -565,8 +622,17 @@ function renderDados(){
   const inicio=(paginaAtual-1)*PAGE_SIZE;
   const pagina=filtrados.slice(inicio,inicio+PAGE_SIZE);
   tbody.innerHTML=pagina.length?pagina.map(it=>{
+    const cliDoItem=ccCol?String(it.fields[ccCol.name]||''):null;
+    const infoStatus=(csCol&&cliDoItem)?mapaStatus[cliDoItem]:null;
+    const ehFonteDoStatus=!infoStatus||infoStatus.itemId===it.id;
     const tds=colunas.map(c=>{
       const num=(colType(c)==='number'||colType(c)==='currency');
+      if(c===csCol){
+        const valorExibido=valorParaColuna(c,it,mapaStatus);
+        if(admin&&editavel(c)&&ehFonteDoStatus)return `<td>${renderCelulaEdicao(c,it)}</td>`;
+        const marcador=(infoStatus&&!ehFonteDoStatus)?' <span class="reg R2" title="Replicado do lançamento mais recente deste cliente">auto</span>':'';
+        return `<td>${fmtCell(c,valorExibido)}${marcador}</td>`;
+      }
       if(admin&&editavel(c))return `<td>${renderCelulaEdicao(c,it)}</td>`;
       return `<td class="${num?'num':''}">${fmtCell(c,it.fields[c.name])}</td>`;
     }).join('');

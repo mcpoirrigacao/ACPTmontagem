@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel Montagem Geral — MCPO</title>
+<script>
+// Carrega MSAL com fallback de CDN (login Microsoft)
+function loadMsal(){return new Promise((res,rej)=>{if(window.msal){res();return;}
+  const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.7.1/lib/msal-browser.min.js';
+  s.onload=()=>res();s.onerror=()=>{const s2=document.createElement('script');
+  s2.src='https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js';s2.onload=()=>res();s2.onerror=()=>rej(new Error('MSAL'));document.head.appendChild(s2);};
+  document.head.appendChild(s);});}
+</script>
+<style>
+:root{
+    --azul-escuro:#03590f;
+    --azul:#0a7517;
+    --azul-claro:#1f8c33;
+    --areia:#f4efe6;
+    --areia-escura:#e8dfd0;
+    --ferrugem:#c1541c;
+    --verde:#4c7a3f;
+    --texto:#1e2b22;
+    --texto-suave:#5f6e62;
+    --branco:#ffffff;
+    --borda:#d9d0bf;
+    --erro:#a3312a;
+    --raio:6px;
+    --fonte-titulo: 'Georgia', 'Times New Roman', serif;
+    --fonte-corpo: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --fonte-dado: 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:var(--fonte-corpo);
+    background:var(--areia);
+    color:var(--texto);
+    line-height:1.4;
+    -webkit-font-smoothing:antialiased;
+  }
+  header.app-header{
+    background:linear-gradient(135deg,var(--azul-escuro),var(--azul));
+    color:var(--branco);
+    padding:18px 20px 14px;
+    position:sticky;
+    top:0;
+    z-index:50;
+    box-shadow:0 2px 10px rgba(0,0,0,.25);
+  }
+  .brand-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+  .brand-mark{font-family:var(--fonte-titulo);font-size:1.5rem;font-weight:700;letter-spacing:.5px;}
+  .brand-sub{font-size:.72rem;text-transform:uppercase;letter-spacing:1.5px;color:#bcdec2;}
+
+  nav.tabs{display:flex;gap:2px;margin-top:14px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid rgba(255,255,255,.15);}
+  nav.tabs::-webkit-scrollbar{display:none;}
+  nav.tabs button{
+    flex:0 0 auto;background:transparent;border:none;color:#a9cfb2;padding:9px 14px;
+    font-size:.82rem;font-weight:600;letter-spacing:.2px;cursor:pointer;
+    border-bottom:3px solid transparent;white-space:nowrap;transition:color .15s, border-color .15s;
+  }
+  nav.tabs button.active{color:#ffffff;border-bottom:3px solid var(--ferrugem);}
+  nav.tabs button:hover{color:#ffffff;}
+
+  main{max-width:1150px;margin:0 auto;padding:18px 14px 90px;}
+  section.pane{display:none;animation:fade .18s ease;}
+  section.pane.active{display:block;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+  h2.pane-title{font-family:var(--fonte-titulo);font-size:1.35rem;margin:4px 0 4px;color:var(--azul-escuro);}
+  p.pane-desc{color:var(--texto-suave);font-size:.86rem;margin:0 0 18px;}
+
+  .card{background:var(--branco);border:1px solid var(--borda);border-radius:var(--raio);padding:16px;margin-bottom:16px;}
+  .card h3{
+    margin:0 0 12px;font-size:.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--azul-claro);
+    border-bottom:1px solid var(--areia-escura);padding-bottom:8px;
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+  }
+  .card h3 .h3-side{font-size:.7rem;color:var(--texto-suave);text-transform:none;letter-spacing:0;font-weight:400;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;}
+
+  .totals-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:4px;margin-bottom:16px;}
+  @media (max-width:900px){ .totals-strip{grid-template-columns:repeat(2,minmax(0,1fr));} }
+  @media (max-width:520px){ .totals-strip{grid-template-columns:1fr;} }
+  .total-box{background:var(--azul-escuro);color:#fff;border-radius:6px;padding:12px 14px;}
+  .total-box .label{font-size:.66rem;text-transform:uppercase;letter-spacing:.5px;color:#a9cfb2;}
+  .total-box .value{font-family:var(--fonte-dado);font-size:1.15rem;font-weight:700;margin-top:3px;}
+  .total-box .value.sm{font-size:.98rem;}
+  .total-box.accent{background:var(--ferrugem);}
+  .total-box.accent .label{color:#f6dcc9;}
+  .total-box .sub{font-size:.64rem;color:#a9cfb2;margin-top:4px;font-family:var(--fonte-corpo);}
+
+  .bar{height:7px;background:var(--areia-escura);border-radius:4px;overflow:hidden;margin-top:7px;}
+  .bar > span{display:block;height:100%;background:var(--azul-claro);border-radius:4px;}
+
+  table.dt{width:100%;border-collapse:collapse;font-size:.82rem;}
+  table.dt th{
+    text-align:left;background:var(--azul-escuro);color:#fff;padding:8px 8px;
+    font-size:.66rem;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;white-space:nowrap;
+  }
+  table.dt th.r,table.dt td.r{text-align:right;}
+  table.dt td{padding:7px 8px;border-bottom:1px solid var(--areia-escura);vertical-align:middle;}
+  table.dt tr:hover td{background:#fbf7ef;}
+  table.dt td.num{font-family:var(--fonte-dado);text-align:right;}
+  .tablewrap{overflow-x:auto;border:1px solid var(--borda);border-radius:6px;max-height:70vh;}
+
+  .reg{display:inline-block;font-size:.62rem;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:.3px;}
+  .reg.R1{background:#e4f1e6;color:var(--azul-claro);}
+  .reg.R2{background:#f3e6de;color:var(--ferrugem);}
+
+  .btn{border:none;border-radius:5px;padding:9px 16px;font-size:.85rem;font-weight:700;cursor:pointer;letter-spacing:.2px;transition:transform .08s, filter .12s;}
+  .btn:active{transform:scale(.97);}
+  .btn:disabled{opacity:.45;cursor:default;}
+  .btn.primary{background:var(--ferrugem);color:#fff;}
+  .btn.primary:hover{filter:brightness(1.08);}
+  .btn.ghost{background:transparent;color:var(--azul);border:1px solid var(--azul-claro);}
+  .btn.ghost:hover{background:#eef6ef;}
+  .btn.danger{background:transparent;color:var(--erro);border:1px solid var(--erro);}
+  .btn.danger:hover{background:#fbeceb;}
+  .btn.small{padding:5px 10px;font-size:.72rem;}
+
+  .toolbar-dados{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+  .toolbar-dados input[type=text]{flex:1;min-width:200px;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.86rem;font-family:var(--fonte-corpo);background:#fffdf9;color:var(--texto);}
+  .toolbar-dados input[type=text]:focus{outline:2px solid var(--azul-claro);outline-offset:1px;}
+  .toolbar-dados select{border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.8rem;background:#fffdf9;color:var(--texto);}
+  .pager{display:flex;align-items:center;gap:12px;margin-top:10px;font-size:.8rem;color:var(--texto-suave);flex-wrap:wrap;}
+
+  body:not(.is-admin) .somente-admin{display:none !important;}
+  .ms-btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:4px;font-size:.75rem;padding:6px 12px;cursor:pointer;font-weight:600;}
+  .ms-btn:hover{background:rgba(255,255,255,.28);}
+  .ms-info{display:none;font-size:.68rem;color:#a9cfb2;margin-top:3px;text-align:right;word-break:break-all;}
+  .sync-status{display:none;font-size:.66rem;margin-top:4px;text-align:right;font-weight:700;padding:2px 8px;border-radius:10px;}
+  .sync-status.ok{color:#d6f0da;background:rgba(255,255,255,.12);}
+  .sync-status.saving{color:#fff;background:rgba(193,84,28,.55);}
+  .sync-status.warn{color:#ffe0b2;background:rgba(163,49,42,.5);}
+  .overlay{display:none;position:fixed;inset:0;background:var(--azul-escuro);z-index:1000;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px;}
+  .overlay .box{background:#fff;border-radius:10px;padding:40px 32px;max-width:420px;width:100%;}
+  .overlay .box h2{font-family:var(--fonte-titulo);color:var(--azul-escuro);margin:0 0 10px;}
+  .overlay .box p{color:var(--texto-suave);font-size:.9rem;margin:0 0 22px;}
+  .overlay .emoji{font-size:3rem;margin-bottom:16px;}
+
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--azul-escuro);color:#fff;padding:10px 18px;border-radius:20px;font-size:.82rem;opacity:0;transition:opacity .25s, transform .25s;pointer-events:none;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.3);}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand-row">
+    <span class="brand-mark">MAQCAMPO</span>
+    <span class="brand-sub">Painel · Montagem Geral MCPO</span>
+    <div style="margin-left:auto;display:flex;gap:14px;align-items:flex-start;">
+      <div style="text-align:right;">
+        <button id="btn-ms-login" class="ms-btn" type="button"><span id="ms-login-label">⏳ Inicializando...</span></button>
+        <div id="ms-user-info" class="ms-info"></div>
+        <div id="sync-status" class="sync-status"></div>
+      </div>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="painel" class="active">Painel</button>
+    <button data-tab="dados">Dados</button>
+    <button data-tab="parametros">⚙ Parâmetros</button>
+  </nav>
+</header>
+
+<main>
+  <section class="pane active" id="pane-painel">
+    <h2 class="pane-title">Painel</h2>
+    <p class="pane-desc">Visão consolidada da lista <b>Montagem Geral MCPO</b> (SharePoint).</p>
+    <div class="totals-strip" id="strip-painel"></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+      <div class="card" id="card-status-painel" style="display:none;"></div>
+      <div class="card" id="card-recentes-painel" style="display:none;">
+        <h3>Registros mais recentes</h3>
+        <div id="lista-recentes-painel"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane" id="pane-dados">
+    <h2 class="pane-title">Dados</h2>
+    <p class="pane-desc">Todos os registros da lista. Clique no cabeçalho para ordenar; use a busca e os filtros abaixo.</p>
+    <div class="toolbar-dados">
+      <input type="text" id="inp-busca-dados" placeholder="Buscar em qualquer coluna...">
+      <div id="filtros-dados" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+    </div>
+    <div class="card">
+      <div class="tablewrap">
+        <table class="dt" id="tbl-dados">
+          <thead id="thead-dados"></thead>
+          <tbody id="tbody-dados"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button class="btn ghost small" id="btn-pag-ant" type="button">‹ Anterior</button>
+        <span id="contagem-dados"></span>
+        <button class="btn ghost small" id="btn-pag-prox" type="button">Próxima ›</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane" id="pane-parametros">
+    <h2 class="pane-title">⚙ Parâmetros</h2>
+    <p class="pane-desc">Fonte de dados e controle de acesso.</p>
+
+    <div class="card">
+      <h3>Fonte de dados</h3>
+      <div id="info-fonte" style="font-size:.85rem;line-height:1.7;"></div>
+      <div style="margin-top:10px;">
+        <a href="https://maqcampoirrigacao.sharepoint.com/sites/ControleObra/Lists/Montagem%20Geral%20%20MCPO/AllItems.aspx" target="_blank" rel="noopener" class="btn ghost small">Abrir lista no SharePoint ↗</a>
+      </div>
+    </div>
+
+    <div class="card somente-admin">
+      <h3>Usuários &amp; Acesso <span class="h3-side">login Microsoft</span></h3>
+      <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--texto-suave);font-weight:700;margin:12px 0 6px;">Administradores</div>
+      <div id="lista-admins"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <input type="text" id="inp-novo-admin" placeholder="email@empresa.com" style="flex:1;min-width:200px;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.88rem;background:#fffdf9;">
+        <button class="btn primary small" id="btn-add-admin" type="button">+ Admin</button>
+      </div>
+      <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--texto-suave);font-weight:700;margin:16px 0 6px;">Usuários comuns</div>
+      <div id="lista-comuns"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <input type="text" id="inp-novo-comum" placeholder="email@empresa.com" style="flex:1;min-width:200px;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.88rem;background:#fffdf9;">
+        <button class="btn ghost small" id="btn-add-comum" type="button">+ Usuário</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn primary" id="btn-sync" type="button">⟳ Atualizar da nuvem</button>
+    </div>
+  </section>
+</main>
+
+<div class="overlay" id="overlay-login"><div class="box"><div class="emoji">🔐</div><h2>MAQCAMPO</h2><p>Faça login com sua conta Microsoft para acessar.</p><button onclick="document.getElementById('btn-ms-login').click()" class="btn primary" style="width:100%;padding:12px;" type="button">🔑 Entrar com Microsoft</button></div></div>
+<div class="overlay" id="overlay-negado"><div class="box"><div class="emoji">🔒</div><h2>Acesso Restrito</h2><p>Seu e-mail não está cadastrado. Peça a um administrador para liberar.</p><div id="overlay-email-info" style="background:var(--areia);border-radius:6px;padding:10px 14px;font-size:.82rem;color:var(--texto-suave);margin-bottom:20px;word-break:break-all;"></div><button onclick="document.getElementById('btn-ms-login').click()" class="btn ghost" style="width:100%;" type="button">Entrar com outra conta</button></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================ HELPERS ============================ */
+function n(v){const x=Number(v);return isFinite(x)?x:0;}
+function brl(v){return (v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
+function int(v){return (v||0).toLocaleString('pt-BR');}
+function escapeHtml(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML;}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._h);toast._h=setTimeout(()=>t.classList.remove('show'),2100);}
+function tbox(label,value,sub,opts){opts=opts||{};const cls='total-box'+(opts.accent?' accent':'');return `<div class="${cls}"><div class="label">${label}</div><div class="value ${opts.sm?'sm':''}">${value}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;}
+function normNome(s){return (s||'').replace(/\s+/g,' ').trim().toLowerCase();}
+
+/* ============================ ESTADO (cache local) ============================ */
+const STORE_KEY='maqcampo-painel-montagem-v1';
+let colunas=[];   // colunas da lista (Graph)
+let itens=[];     // itens { id, fields }
+let ultimaSync=null;
+function loadCache(){try{const raw=localStorage.getItem(STORE_KEY);if(raw){const o=JSON.parse(raw);if(o&&o.colunas&&o.itens)return o;}}catch(e){}return null;}
+function saveCache(){try{localStorage.setItem(STORE_KEY,JSON.stringify({colunas,itens,ultimaSync}));}catch(e){}}
+(function initCache(){const c=loadCache();if(c){colunas=c.colunas;itens=c.itens;ultimaSync=c.ultimaSync;}})();
+
+/* ============================ TIPOS / FORMATAÇÃO DE COLUNA ============================ */
+function colType(c){
+  if(c.currency) return 'currency';
+  if(c.number) return 'number';
+  if(c.dateTime) return 'dateTime';
+  if(c.boolean) return 'boolean';
+  if(c.choice) return 'choice';
+  if(c.personOrGroup) return 'person';
+  if(c.lookup) return 'lookup';
+  return 'text';
+}
+function claimsToNome(v){if(typeof v!=='string')return v;const m=v.match(/\|([^|]+@[^|]+)$/);return m?m[1]:v.replace(/^i:0#\.[a-z]\|membership\|/i,'');}
+function fmtCell(col,val){
+  if(val===null||val===undefined||val==='')return '—';
+  switch(colType(col)){
+    case 'currency': return brl(n(val));
+    case 'number': {const num=n(val);return Number.isInteger(num)?int(num):num.toLocaleString('pt-BR',{maximumFractionDigits:2});}
+    case 'dateTime': {try{const d=new Date(val);if(isNaN(d))return String(val);const somenteData=col.dateTime&&col.dateTime.format==='DateOnly';return somenteData?d.toLocaleDateString('pt-BR',{timeZone:'UTC'}):d.toLocaleString('pt-BR');}catch(e){return String(val);}}
+    case 'boolean': return val?'Sim':'Não';
+    case 'person': {if(Array.isArray(val))return val.map(p=>(p&&(p.LookupValue||p.Email))||claimsToNome(p)).join(', ');if(val&&typeof val==='object')return val.LookupValue||val.Email||'—';return claimsToNome(val);}
+    case 'lookup': {if(Array.isArray(val))return val.map(v=>(v&&v.LookupValue)||v).join(', ');if(val&&typeof val==='object')return val.LookupValue||'—';return String(val);}
+    case 'choice': return Array.isArray(val)?val.join(', '):String(val);
+    default: return String(val);
+  }
+}
+function sortVal(col,val){
+  switch(colType(col)){
+    case 'currency': case 'number': return n(val);
+    case 'dateTime': {const d=new Date(val);return isNaN(d)?0:d.getTime();}
+    case 'boolean': return val?1:0;
+    default: return (fmtCell(col,val)||'').toString().toLowerCase();
+  }
+}
+function tituloItem(fields){
+  const tcol=colunas.find(c=>c.name==='Title')||colunas.find(c=>colType(c)==='text');
+  if(tcol&&fields[tcol.name])return String(fields[tcol.name]);
+  return 'Registro';
+}
+
+/* ============================ PAINEL ============================ */
+function chooseStatusColumn(){
+  const cand=colunas.filter(c=>colType(c)==='choice'||colType(c)==='boolean');
+  if(!cand.length)return null;
+  return cand.find(c=>/status|situa|fase|etapa/i.test(c.displayName))||cand[0];
+}
+function chooseValueColumns(){
+  const cand=colunas.filter(c=>colType(c)==='currency'||colType(c)==='number');
+  const prio=cand.filter(c=>/valor|custo|pre[cç]o|total/i.test(c.displayName));
+  return (prio.length?prio:cand).slice(0,2);
+}
+function chooseDateColumn(){
+  const cand=colunas.filter(c=>colType(c)==='dateTime');
+  return cand.find(c=>/data/i.test(c.displayName))||cand[0]||null;
+}
+function renderPainel(){
+  const strip=document.getElementById('strip-painel');
+  const boxes=[tbox('Total de Registros',int(itens.length))];
+  chooseValueColumns().forEach(c=>{
+    const soma=itens.reduce((a,it)=>a+n(it.fields[c.name]),0);
+    boxes.push(tbox(escapeHtml(c.displayName),colType(c)==='currency'?brl(soma):int(soma)));
+  });
+  const dcol=chooseDateColumn();
+  if(dcol){
+    const lim=Date.now()-30*24*3600*1000;
+    const recentes=itens.filter(it=>{const v=it.fields[dcol.name];if(!v)return false;const d=new Date(v).getTime();return !isNaN(d)&&d>=lim;});
+    boxes.push(tbox('Últimos 30 dias',int(recentes.length),escapeHtml(dcol.displayName)));
+  }
+  boxes.push(tbox('Última sincronização',ultimaSync?new Date(ultimaSync).toLocaleString('pt-BR'):'—',null,{sm:true}));
+  strip.innerHTML=boxes.join('');
+
+  const scol=chooseStatusColumn();
+  const cardStatus=document.getElementById('card-status-painel');
+  if(scol&&itens.length){
+    const contagem={};
+    itens.forEach(it=>{let v=it.fields[scol.name];if(colType(scol)==='boolean')v=v?'Sim':'Não';if(v===undefined||v===null||v==='')v='(vazio)';v=Array.isArray(v)?v.join(', '):String(v);contagem[v]=(contagem[v]||0)+1;});
+    const total=itens.length;
+    const linhas=Object.entries(contagem).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+      const pctv=total?Math.round(v/total*100):0;
+      return `<div style="margin-bottom:8px;"><div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:3px;"><span>${escapeHtml(k)}</span><span class="reg R1">${int(v)} · ${pctv}%</span></div><div class="bar"><span style="width:${pctv}%"></span></div></div>`;
+    }).join('');
+    cardStatus.innerHTML=`<h3>Por ${escapeHtml(scol.displayName)}</h3>${linhas}`;
+    cardStatus.style.display='';
+  }else{cardStatus.style.display='none';}
+
+  const listaRecentes=document.getElementById('lista-recentes-painel');
+  if(dcol&&itens.length){
+    const ordenados=[...itens].sort((a,b)=>sortVal(dcol,b.fields[dcol.name])-sortVal(dcol,a.fields[dcol.name])).slice(0,6);
+    listaRecentes.innerHTML=ordenados.map(it=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span>${escapeHtml(tituloItem(it.fields))}</span><span style="color:var(--texto-suave);font-family:var(--fonte-dado);">${fmtCell(dcol,it.fields[dcol.name])}</span></div>`).join('');
+    document.getElementById('card-recentes-painel').style.display='';
+  }else{document.getElementById('card-recentes-painel').style.display='none';}
+}
+
+/* ============================ DADOS (tabela) ============================ */
+let filtroTexto='';
+let ordCol=null,ordAsc=true;
+let paginaAtual=1;
+const PAGE_SIZE=50;
+let filtrosColuna={};
+
+function colunasFiltraveis(){return colunas.filter(c=>colType(c)==='choice'||colType(c)==='boolean');}
+
+function itensFiltrados(){
+  let arr=itens;
+  colunasFiltraveis().forEach(c=>{
+    const sel=filtrosColuna[c.name];
+    if(sel){arr=arr.filter(it=>{let v=it.fields[c.name];if(colType(c)==='boolean')v=v?'Sim':'Não';v=Array.isArray(v)?v.join(', '):String(v??'');return v===sel;});}
+  });
+  if(filtroTexto){
+    const q=filtroTexto.toLowerCase();
+    arr=arr.filter(it=>colunas.some(c=>fmtCell(c,it.fields[c.name]).toLowerCase().includes(q)));
+  }
+  if(ordCol){
+    const cc=ordCol;
+    arr=[...arr].sort((a,b)=>{
+      const va=sortVal(cc,a.fields[cc.name]),vb=sortVal(cc,b.fields[cc.name]);
+      if(va<vb)return ordAsc?-1:1;if(va>vb)return ordAsc?1:-1;return 0;
+    });
+  }
+  return arr;
+}
+
+function renderFiltrosDados(){
+  const wrap=document.getElementById('filtros-dados');
+  const cols=colunasFiltraveis();
+  if(!cols.length){wrap.innerHTML='';return;}
+  wrap.innerHTML=cols.map(c=>{
+    const vals=Array.from(new Set(itens.map(it=>{let v=it.fields[c.name];if(colType(c)==='boolean')v=v?'Sim':'Não';return Array.isArray(v)?v.join(', '):(v??'');}).filter(v=>v!=='')));
+    vals.sort();
+    const atual=filtrosColuna[c.name]||'';
+    return `<select data-filtro-col="${escapeHtml(c.name)}"><option value="">${escapeHtml(c.displayName)}: todos</option>${vals.map(v=>`<option value="${escapeHtml(v)}" ${v===atual?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`;
+  }).join('');
+  wrap.querySelectorAll('[data-filtro-col]').forEach(sel=>{
+    sel.addEventListener('change',()=>{const k=sel.dataset.filtroCol;if(sel.value)filtrosColuna[k]=sel.value;else delete filtrosColuna[k];paginaAtual=1;renderDados();});
+  });
+}
+
+function renderDados(){
+  const thead=document.getElementById('thead-dados'),tbody=document.getElementById('tbody-dados');
+  if(!colunas.length){
+    thead.innerHTML='';
+    tbody.innerHTML=`<tr><td style="padding:14px;color:var(--texto-suave);">Sem dados carregados ainda. Entre com Microsoft e aguarde a sincronização.</td></tr>`;
+    document.getElementById('contagem-dados').textContent='';
+    document.getElementById('btn-pag-ant').disabled=true;document.getElementById('btn-pag-prox').disabled=true;
+    return;
+  }
+  thead.innerHTML='<tr>'+colunas.map(c=>{
+    const num=(colType(c)==='number'||colType(c)==='currency');
+    const seta=ordCol===c?(ordAsc?' ▲':' ▼'):'';
+    return `<th class="${num?'r':''}" data-sort-col="${escapeHtml(c.name)}" style="cursor:pointer;">${escapeHtml(c.displayName)}${seta}</th>`;
+  }).join('')+'</tr>';
+  thead.querySelectorAll('[data-sort-col]').forEach(th=>{
+    th.addEventListener('click',()=>{
+      const col=colunas.find(c=>c.name===th.dataset.sortCol);
+      if(ordCol===col)ordAsc=!ordAsc;else{ordCol=col;ordAsc=true;}
+      renderDados();
+    });
+  });
+  const filtrados=itensFiltrados();
+  const totalPag=Math.max(1,Math.ceil(filtrados.length/PAGE_SIZE));
+  if(paginaAtual>totalPag)paginaAtual=totalPag;
+  const inicio=(paginaAtual-1)*PAGE_SIZE;
+  const pagina=filtrados.slice(inicio,inicio+PAGE_SIZE);
+  tbody.innerHTML=pagina.length?pagina.map(it=>'<tr>'+colunas.map(c=>{
+    const num=(colType(c)==='number'||colType(c)==='currency');
+    return `<td class="${num?'num':''}">${fmtCell(c,it.fields[c.name])}</td>`;
+  }).join('')+'</tr>').join(''):`<tr><td colspan="${colunas.length}" style="padding:14px;color:var(--texto-suave);">Nenhum registro encontrado.</td></tr>`;
+  document.getElementById('contagem-dados').textContent=`${int(filtrados.length)} registro(s)`+(filtrados.length!==itens.length?` (de ${int(itens.length)})`:'')+` · página ${paginaAtual}/${totalPag}`;
+  document.getElementById('btn-pag-ant').disabled=paginaAtual<=1;
+  document.getElementById('btn-pag-prox').disabled=paginaAtual>=totalPag;
+}
+document.getElementById('inp-busca-dados').addEventListener('input',e=>{filtroTexto=e.target.value;paginaAtual=1;renderDados();});
+document.getElementById('btn-pag-ant').addEventListener('click',()=>{if(paginaAtual>1){paginaAtual--;renderDados();}});
+document.getElementById('btn-pag-prox').addEventListener('click',()=>{paginaAtual++;renderDados();});
+
+/* ============================ PARÂMETROS (info fonte) ============================ */
+function renderParametros(){
+  document.getElementById('info-fonte').innerHTML=
+    `Site: <b>${escapeHtml(SP_HOSTNAME+SP_SITE_PATH)}</b><br>`+
+    `Lista: <b>${escapeHtml(LISTA_NOME)}</b><br>`+
+    `Última sincronização: <b>${ultimaSync?new Date(ultimaSync).toLocaleString('pt-BR'):'—'}</b><br>`+
+    `Colunas carregadas: <b>${colunas.length}</b> · Registros: <b>${itens.length}</b>`;
+  renderUsuarios();
+}
+
+/* ============================ RENDER GERAL / ABAS ============================ */
+function renderAll(){
+  renderPainel();
+  if(document.getElementById('pane-dados').classList.contains('active')){renderFiltrosDados();renderDados();}
+  if(document.getElementById('pane-parametros').classList.contains('active'))renderParametros();
+}
+document.getElementById('tabs').addEventListener('click',e=>{
+  const btn=e.target.closest('button[data-tab]');if(!btn)return;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.querySelectorAll('section.pane').forEach(p=>p.classList.remove('active'));
+  document.getElementById('pane-'+btn.dataset.tab).classList.add('active');
+  if(btn.dataset.tab==='painel')renderPainel();
+  if(btn.dataset.tab==='dados'){renderFiltrosDados();renderDados();}
+  if(btn.dataset.tab==='parametros')renderParametros();
+});
+
+/* ==================== MICROSOFT GRAPH / SHAREPOINT ====================
+   Reutiliza o MESMO registro de app do Azure usado nos outros sistemas
+   MAQCAMPO. Só a lista/pasta de origem mudam.                            */
+function getRedirectUri(){const l=window.location;if(l.hostname.includes('sharepoint.com')||l.hostname.includes('onedrive.live.com'))return l.href.replace(/\/[^\/]*$/,'/redirect.html').split('?')[0].split('#')[0];return l.href.split('?')[0].split('#')[0];}
+const MSAL_CONFIG={auth:{clientId:'a02d9ccd-9650-4855-99ce-3ad5ec98c381',authority:'https://login.microsoftonline.com/aa796efe-0373-4718-9911-6cbf0bfa260f',redirectUri:getRedirectUri(),postLogoutRedirectUri:getRedirectUri()},cache:{cacheLocation:'localStorage',storeAuthStateInCookie:true}};
+const GRAPH_SCOPES=['Files.ReadWrite','Sites.ReadWrite.All','User.Read'];
+const SP_HOSTNAME='maqcampoirrigacao.sharepoint.com';
+const SP_SITE_PATH='/sites/ControleObra';
+const SP_BIBLIOTECA='Documentos Compartilhados';
+const SP_PASTA='PainelMontagemMCPO';           // pasta própria deste sistema (só guarda o acesso.json)
+const ACESSO_FILE='painel_montagem_acesso.json';
+const LISTA_NOME='Montagem Geral MCPO';        // nome exibido da lista de origem
+
+let msalInstance=null,msAccount=null,msalReady=false;
+let acesso={emailsAutorizados:[],emailsComuns:[]};
+let acessoEtag=null;
+function spEncodePath(p){return p.split('/').map(s=>encodeURIComponent(s)).join('/');}
+function spPath(f){return `/${SP_BIBLIOTECA}/${SP_PASTA}/${f}`;}
+let _siteId=null;
+async function getSiteId(){if(_siteId)return _siteId;const t=await getGraphToken();if(!t)return null;try{const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${SP_HOSTNAME}:${SP_SITE_PATH}`,{headers:{Authorization:'Bearer '+t}});if(!r.ok)return null;const d=await r.json();_siteId=d.id;return _siteId;}catch(e){return null;}}
+async function spDriveUrl(fp){const s=await getSiteId();if(!s)return null;return `https://graph.microsoft.com/v1.0/sites/${s}/drive/root:${spEncodePath(fp)}`;}
+async function getGraphToken(){if(!msalInstance||!msAccount)return null;try{const r=await msalInstance.acquireTokenSilent({scopes:GRAPH_SCOPES,account:msAccount});return r.accessToken;}catch(e){try{const r=await msalInstance.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}catch(e2){return null;}}}
+async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}
+async function graphPutEtag(fp,body,etag){const t=await getGraphToken();if(!t)return {ok:false,status:0};const base=await spDriveUrl(fp);if(!base)return {ok:false,status:0};const h={Authorization:'Bearer '+t,'Content-Type':'application/octet-stream'};if(etag)h['If-Match']=etag;try{const r=await fetch(base+':/content',{method:'PUT',headers:h,body});let ne=r.headers.get('ETag');if(r.ok){try{const j=await r.json();ne=j.eTag||j.cTag||ne;}catch(e){}}return {ok:r.ok,status:r.status,etag:ne};}catch(e){return {ok:false,status:0};}}
+let _pastaOk=false;
+async function ensureFolder(){if(_pastaOk)return true;const t=await getGraphToken();if(!t)return false;const base=await spDriveUrl(`/${SP_BIBLIOTECA}`);if(!base)return false;try{await fetch(base+':/children',{method:'POST',headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},body:JSON.stringify({name:SP_PASTA,folder:{},'@microsoft.graph.conflictBehavior':'fail'})});}catch(e){}_pastaOk=true;return true;}
+
+/* ---------- Leitura da LISTA (Painel/Dados) ---------- */
+let _listId=null;
+async function getListId(){
+  if(_listId)return _listId;
+  const t=await getGraphToken();if(!t)return null;
+  const s=await getSiteId();if(!s)return null;
+  try{
+    const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${s}/lists?$select=id,displayName,name`,{headers:{Authorization:'Bearer '+t}});
+    if(!r.ok)return null;
+    const d=await r.json();
+    const alvo=normNome(LISTA_NOME);
+    const achada=(d.value||[]).find(l=>normNome(l.displayName)===alvo||normNome(l.name)===alvo);
+    if(achada){_listId=achada.id;return _listId;}
+    return null;
+  }catch(e){return null;}
+}
+const COLUNAS_BLOQUEADAS=new Set(['ContentType','Attachments','Edit','DocIcon','LinkTitleNoMenu','LinkTitle','ItemChildCount','FolderChildCount','_ColorTag','AppAuthor','AppEditor','ComplianceAssetId','_ComplianceFlags','_ComplianceTag','_ComplianceTagWrittenTime','_ComplianceTagUserId','WorkflowVersion','_UIVersionString','InstanceID','Order','GUID','WorkflowInstanceID','ID']);
+async function getListColumns(){
+  const t=await getGraphToken();const s=await getSiteId();const lid=await getListId();
+  if(!t||!s||!lid)return [];
+  try{
+    let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/columns?$top=200`;
+    let out=[];
+    while(url){
+      const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
+      if(!r.ok)break;
+      const d=await r.json();
+      out=out.concat(d.value||[]);
+      url=d['@odata.nextLink']||null;
+    }
+    return out.filter(c=>!c.hidden&&!c.readOnly&&!COLUNAS_BLOQUEADAS.has(c.name));
+  }catch(e){return [];}
+}
+async function fetchAllItems(){
+  const t=await getGraphToken();const s=await getSiteId();const lid=await getListId();
+  if(!t||!s||!lid)return null;
+  const camposSel=colunas.map(c=>c.name).join(',');
+  let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/items?$expand=fields(select=${camposSel})&$top=200`;
+  let out=[],paginas=0;
+  while(url&&paginas<30){
+    const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
+    if(!r.ok)break;
+    const d=await r.json();
+    out=out.concat((d.value||[]).map(it=>({id:it.id,fields:it.fields||{}})));
+    url=d['@odata.nextLink']||null;
+    paginas++;
+  }
+  return out;
+}
+let carregando=false;
+function setSyncStatus(t,c){const el=document.getElementById('sync-status');if(!el)return;el.textContent=t;el.className='sync-status '+(c||'');el.style.display=t?'block':'none';}
+async function sincronizarLista(silencioso){
+  if(!msAccount||carregando)return;
+  carregando=true;setSyncStatus('☁ carregando…','saving');
+  const cols=await getListColumns();
+  if(!cols.length){setSyncStatus('⚠ não encontrei a lista','warn');carregando=false;if(!silencioso)toast('Não encontrei a lista "'+LISTA_NOME+'" no site (nome ou permissão). Veja Parâmetros.');return;}
+  colunas=cols;
+  const its=await fetchAllItems();
+  if(its===null){setSyncStatus('⚠ falha ao carregar itens','warn');carregando=false;return;}
+  itens=its;ultimaSync=new Date().toISOString();saveCache();
+  carregando=false;setSyncStatus('☁ atualizado','ok');if(!silencioso)toast('Dados atualizados ('+itens.length+' registros).');
+  renderAll();
+}
+let _pollTimer=null;
+function startPolling(){clearInterval(_pollTimer);_pollTimer=setInterval(()=>{if(!msAccount||carregando)return;const a=document.activeElement;if(a&&(a.tagName==='INPUT'||a.tagName==='SELECT'))return;sincronizarLista(true);},60000);}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&msAccount)sincronizarLista(true);});
+
+async function carregarAcesso(){
+  const ac=await graphGetJsonEtag(spPath(ACESSO_FILE));
+  if(ac.ok&&ac.data&&(ac.data.emailsAutorizados||ac.data.emailsComuns)){acesso={emailsAutorizados:ac.data.emailsAutorizados||[],emailsComuns:ac.data.emailsComuns||[]};acessoEtag=ac.etag;}
+}
+async function saveAcesso(){
+  if(!msAccount){toast('Entre com o Microsoft para gerenciar usuários.');return;}
+  await ensureFolder();let ok=false,tent=0;
+  const uni=(a,b)=>Array.from(new Set([...(a||[]),...(b||[])]));
+  while(tent<5&&!ok){tent++;
+    const res=await graphPutEtag(spPath(ACESSO_FILE),new TextEncoder().encode(JSON.stringify(acesso)),acessoEtag);
+    if(res.ok){acessoEtag=res.etag||acessoEtag;ok=true;}
+    else if(res.status===412||res.status===409){const ac=await graphGetJsonEtag(spPath(ACESSO_FILE));if(ac.ok&&ac.data){acesso.emailsAutorizados=uni(ac.data.emailsAutorizados,acesso.emailsAutorizados);acesso.emailsComuns=uni(ac.data.emailsComuns,acesso.emailsComuns).filter(e=>!acesso.emailsAutorizados.includes(e));acessoEtag=ac.etag;renderUsuarios();}else break;}
+    else break;
+  }
+  if(!ok)toast('Não foi possível salvar os usuários.');
+}
+
+/* ==================== CONTROLE DE ACESSO (admin/comum) ==================== */
+function emailAtual(){return msAccount?(msAccount.username||'').toLowerCase():'';}
+function nivelAcesso(){if(!msAccount)return msalReady?'deslogado':'local';const e=emailAtual();if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(e))return 'admin';if(acesso.emailsComuns.map(x=>x.toLowerCase()).includes(e))return 'comum';if(!acesso.emailsAutorizados.length&&!acesso.emailsComuns.length)return 'admin';return 'bloqueado';}
+function applyAccess(){
+  const nivel=nivelAcesso();const ovL=document.getElementById('overlay-login'),ovN=document.getElementById('overlay-negado');
+  if(nivel==='deslogado'){ovL.style.display='flex';ovN.style.display='none';return;}ovL.style.display='none';
+  if(nivel==='bloqueado'){ovN.style.display='flex';document.getElementById('overlay-email-info').textContent='Logado como: '+emailAtual();return;}ovN.style.display='none';
+  const isAdmin=(nivel==='admin'||nivel==='local');
+  document.body.classList.toggle('is-admin',isAdmin);
+  const tabParam=document.querySelector('#tabs button[data-tab="parametros"]');
+  tabParam.style.display=isAdmin?'':'none';
+  if(!isAdmin&&document.getElementById('pane-parametros').classList.contains('active'))document.querySelector('#tabs button[data-tab="painel"]').click();
+}
+function renderUsuarios(){
+  const la=document.getElementById('lista-admins');if(!la)return;
+  la.innerHTML=acesso.emailsAutorizados.length?acesso.emailsAutorizados.map((em,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--areia-escura);"><span style="flex:1;">👤 ${escapeHtml(em)} <span class="reg R1">ADMIN</span></span><button class="btn danger small" data-rem-admin="${i}" type="button">remover</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.82rem;">Nenhum admin — o primeiro login vira admin.</div>`;
+  la.querySelectorAll('[data-rem-admin]').forEach(b=>b.onclick=async()=>{acesso.emailsAutorizados.splice(+b.dataset.remAdmin,1);await saveAcesso();renderUsuarios();applyAccess();});
+  const lc=document.getElementById('lista-comuns');
+  lc.innerHTML=acesso.emailsComuns.length?acesso.emailsComuns.map((em,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--areia-escura);"><span style="flex:1;">👤 ${escapeHtml(em)}</span><button class="btn danger small" data-rem-comum="${i}" type="button">remover</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.82rem;">Nenhum usuário comum.</div>`;
+  lc.querySelectorAll('[data-rem-comum]').forEach(b=>b.onclick=async()=>{acesso.emailsComuns.splice(+b.dataset.remComum,1);await saveAcesso();renderUsuarios();});
+}
+document.getElementById('btn-add-admin').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-admin').value.trim().toLowerCase();if(!em)return;if(!acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em))acesso.emailsAutorizados.push(em);acesso.emailsComuns=acesso.emailsComuns.filter(x=>x.toLowerCase()!==em);document.getElementById('inp-novo-admin').value='';await saveAcesso();renderUsuarios();applyAccess();toast('Admin adicionado.');});
+document.getElementById('btn-add-comum').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-comum').value.trim().toLowerCase();if(!em)return;if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em)){toast('Já é admin.');return;}if(!acesso.emailsComuns.map(x=>x.toLowerCase()).includes(em))acesso.emailsComuns.push(em);document.getElementById('inp-novo-comum').value='';await saveAcesso();renderUsuarios();toast('Usuário adicionado.');});
+document.getElementById('btn-sync').addEventListener('click',async()=>{if(!msAccount){toast('Entre com o Microsoft primeiro.');return;}await carregarAcesso();await sincronizarLista(false);renderParametros();});
+
+/* ==================== LOGIN / INIT ==================== */
+async function initAuth(){
+  try{
+    await loadMsal();const M=window.msal&&window.msal.PublicClientApplication;if(!M)throw new Error('MSAL');
+    msalInstance=new M(MSAL_CONFIG);await msalInstance.initialize();msalReady=true;
+    const accs=msalInstance.getAllAccounts();
+    if(accs.length){msAccount=accs[0];await carregarAcesso();await sincronizarLista(true);}
+    updateLoginUI();applyAccess();startPolling();renderAll();
+  }catch(e){msalReady=false;document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';const info=document.getElementById('ms-user-info');info.textContent='(modo local — login indisponível)';info.style.display='block';}
+}
+function updateLoginUI(){const lbl=document.getElementById('ms-login-label'),info=document.getElementById('ms-user-info');if(msAccount){lbl.textContent='✓ '+(msAccount.name||msAccount.username);info.textContent='SharePoint › '+LISTA_NOME;info.style.display='block';}else{lbl.textContent='🔑 Entrar com Microsoft';info.style.display='none';}}
+document.getElementById('btn-ms-login').addEventListener('click',async()=>{
+  if(!msalInstance){toast('Autenticação inicializando — tente de novo.');return;}
+  if(msAccount){if(confirm('Sair de '+msAccount.username+'?')){try{await msalInstance.logoutPopup({account:msAccount});}catch(e){}msAccount=null;updateLoginUI();applyAccess();}return;}
+  try{document.getElementById('ms-login-label').textContent='⏳ Abrindo login...';const resp=await msalInstance.loginPopup({scopes:GRAPH_SCOPES});msAccount=resp.account;updateLoginUI();await carregarAcesso();await sincronizarLista(true);applyAccess();renderAll();toast('Logado como '+msAccount.username);}
+  catch(e){document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';toast('Erro no login: '+(e.errorCode||e.message||'desconhecido'));}
+});
+
+renderAll();
+initAuth();
+</script>
+</body>
+</html>

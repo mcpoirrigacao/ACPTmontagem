@@ -57,6 +57,12 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
   .card h3{margin:0 0 12px;font-size:.78rem;text-transform:uppercase;letter-spacing:1px;color:var(--azul-claro);border-bottom:1px solid var(--areia-escura);padding-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
   .card h3 .h3-side{font-size:.7rem;color:var(--texto-suave);text-transform:none;letter-spacing:0;font-weight:400;}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:.72rem;color:var(--texto-suave);font-weight:700;text-transform:uppercase;letter-spacing:.3px;}
+  .field input,.field select,.field textarea{border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.86rem;font-family:var(--fonte-corpo);background:#fffdf9;color:var(--texto);}
+  .field textarea{resize:vertical;min-height:70px;font-family:var(--fonte-corpo);}
+  .field input:disabled,.field select:disabled,.field textarea:disabled{background:var(--areia-escura);color:var(--texto-suave);}
+  .field .nota{font-size:.66rem;color:var(--texto-suave);}
   .totals-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:4px;margin-bottom:16px;}
   @media (max-width:900px){ .totals-strip{grid-template-columns:repeat(2,minmax(0,1fr));} }
   @media (max-width:520px){ .totals-strip{grid-template-columns:1fr;} }
@@ -167,11 +173,19 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
 
   <section class="pane" id="pane-dados">
     <h2 class="pane-title">Dados</h2>
-    <p class="pane-desc">Todos os registros da lista. Clique no cabeçalho para ordenar. A coluna <b>Status</b> mostra o status atual da obra — mesmo valor em todas as linhas do cliente, calculado a partir do lançamento mais recente (marcado com <span class="reg R2">auto</span> nas demais linhas). <span class="somente-admin">Como admin, você pode editar direto nas células, criar e excluir registros — a gravação acontece direto na lista do SharePoint.</span></p>
-    <div class="toolbar-dados">
-      <input type="text" id="inp-busca-dados" placeholder="Buscar em qualquer coluna...">
-      <div id="filtros-dados" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
-      <button class="btn primary small" id="btn-novo-registro" type="button" style="display:none;">+ Novo Registro</button>
+    <p class="pane-desc">Todos os registros da lista. Clique no cabeçalho para ordenar. A coluna <b>Status</b> mostra o status atual da obra — mesmo valor em todas as linhas do cliente, calculado a partir do lançamento mais recente (marcado com <span class="reg R2">auto</span> nas demais linhas). <span class="somente-admin">Como admin, use "+ Novo Registro" ou "editar" em qualquer linha — a gravação acontece direto na lista do SharePoint.</span></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn primary somente-admin" id="btn-novo-registro" type="button">+ Novo Registro</button>
+      <button class="btn ghost" id="btn-exportar-csv" type="button">⬇ Exportar CSV</button>
+    </div>
+    <div class="card">
+      <h3>Filtros</h3>
+      <div class="toolbar-dados" style="margin-bottom:0;">
+        <input type="text" id="inp-busca-dados" placeholder="Buscar em qualquer coluna...">
+        <div id="filtros-dados" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+        <button class="btn ghost small" id="btn-limpar-filtros-dados" type="button">Limpar filtros</button>
+      </div>
+      <div id="resumo-dados" style="font-size:.82rem;color:var(--texto-suave);margin-top:10px;"></div>
     </div>
     <div class="card">
       <div class="tablewrap">
@@ -222,6 +236,20 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
 
 <div class="overlay" id="overlay-login"><div class="box"><div class="emoji">🔐</div><h2>MAQCAMPO</h2><p>Faça login com sua conta Microsoft para acessar.</p><button onclick="document.getElementById('btn-ms-login').click()" class="btn primary" style="width:100%;padding:12px;" type="button">🔑 Entrar com Microsoft</button></div></div>
 <div class="overlay" id="overlay-negado"><div class="box"><div class="emoji">🔒</div><h2>Acesso Restrito</h2><p>Seu e-mail não está cadastrado. Peça a um administrador para liberar.</p><div id="overlay-email-info" style="background:var(--areia);border-radius:6px;padding:10px 14px;font-size:.82rem;color:var(--texto-suave);margin-bottom:20px;word-break:break-all;"></div><button onclick="document.getElementById('btn-ms-login').click()" class="btn ghost" style="width:100%;" type="button">Entrar com outra conta</button></div></div>
+<div class="overlay" id="overlay-registro">
+  <div class="box" style="max-width:900px;width:96%;text-align:left;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;">
+      <h2 id="titulo-modal-registro" style="margin:0;">Novo Registro</h2>
+      <button class="btn ghost small" id="btn-fechar-modal-registro" type="button">✕ Fechar</button>
+    </div>
+    <div class="grid" id="campos-modal-registro" style="margin-bottom:18px;"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button class="btn primary" id="btn-salvar-registro" type="button">Salvar</button>
+      <button class="btn danger" id="btn-excluir-registro" type="button" style="display:none;">Excluir</button>
+      <span id="status-modal-registro" style="font-size:.78rem;color:var(--texto-suave);"></span>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -509,7 +537,7 @@ function renderRegional(){
   renderCardStatus(base);
 }
 
-/* ============================ DADOS (tabela editável) ============================ */
+/* ============================ DADOS (tabela + modal de cadastro) ============================ */
 let filtroTexto='';
 let ordCol=null,ordAsc=true;
 let paginaAtual=1;
@@ -529,6 +557,11 @@ function valorParaColuna(col,item,mapaStatus){
     }
   }
   return item.fields[col.name];
+}
+function statusInfoDoItem(item,ccCol,mapaStatus){
+  if(!ccCol)return null;
+  const cli=String(item.fields[ccCol.name]||'');
+  return mapaStatus[cli]||null;
 }
 function itensFiltrados(){
   let arr=itens;
@@ -573,22 +606,15 @@ function valorDoInput(col,el){
   }
 }
 function editavel(c){return !c.readOnly&&colType(c)!=='person'&&colType(c)!=='lookup';}
-function renderCelulaEdicao(col,item){
-  const t=colType(col);
-  const valorAtual=item.fields[col.name];
-  if(t==='choice'&&col.choice&&Array.isArray(col.choice.choices)){
-    return `<select data-edit-col="${escapeHtml(col.name)}" data-item="${escapeHtml(item.id)}"><option value="">—</option>${col.choice.choices.map(o=>`<option value="${escapeHtml(o)}" ${String(valorAtual)===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+function atualizarResumoDados(filtrados){
+  const el=document.getElementById('resumo-dados');
+  let texto=`${int(filtrados.length)} de ${int(itens.length)} registro(s)`;
+  const cv=colValor();
+  if(cv){
+    const soma=filtrados.reduce((a,it)=>a+n(it.fields[cv.name]),0);
+    texto+=` · ${brl(soma)}`;
   }
-  if(t==='boolean'){
-    return `<input type="checkbox" data-edit-col="${escapeHtml(col.name)}" data-item="${escapeHtml(item.id)}" ${valorAtual?'checked':''}>`;
-  }
-  if(t==='dateTime'){
-    return `<input type="date" data-edit-col="${escapeHtml(col.name)}" data-item="${escapeHtml(item.id)}" value="${valorParaInputData(valorAtual)}">`;
-  }
-  if(t==='currency'||t==='number'){
-    return `<input type="number" step="any" data-edit-col="${escapeHtml(col.name)}" data-item="${escapeHtml(item.id)}" value="${valorAtual==null?'':valorAtual}">`;
-  }
-  return `<input type="text" data-edit-col="${escapeHtml(col.name)}" data-item="${escapeHtml(item.id)}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
+  el.textContent=texto;
 }
 function renderDados(){
   const admin=souAdmin();
@@ -598,6 +624,7 @@ function renderDados(){
     thead.innerHTML='';
     tbody.innerHTML=`<tr><td style="padding:14px;color:var(--texto-suave);">Sem dados carregados ainda. Entre com Microsoft e aguarde a sincronização.</td></tr>`;
     document.getElementById('contagem-dados').textContent='';
+    document.getElementById('resumo-dados').textContent='';
     document.getElementById('btn-pag-ant').disabled=true;document.getElementById('btn-pag-prox').disabled=true;
     return;
   }
@@ -617,65 +644,113 @@ function renderDados(){
     });
   });
   const filtrados=itensFiltrados();
+  atualizarResumoDados(filtrados);
   const totalPag=Math.max(1,Math.ceil(filtrados.length/PAGE_SIZE));
   if(paginaAtual>totalPag)paginaAtual=totalPag;
   const inicio=(paginaAtual-1)*PAGE_SIZE;
   const pagina=filtrados.slice(inicio,inicio+PAGE_SIZE);
   tbody.innerHTML=pagina.length?pagina.map(it=>{
-    const cliDoItem=ccCol?String(it.fields[ccCol.name]||''):null;
-    const infoStatus=(csCol&&cliDoItem)?mapaStatus[cliDoItem]:null;
+    const infoStatus=statusInfoDoItem(it,ccCol,mapaStatus);
     const ehFonteDoStatus=!infoStatus||infoStatus.itemId===it.id;
     const tds=colunas.map(c=>{
       const num=(colType(c)==='number'||colType(c)==='currency');
-      if(c===csCol){
-        const valorExibido=valorParaColuna(c,it,mapaStatus);
-        if(admin&&editavel(c)&&ehFonteDoStatus)return `<td>${renderCelulaEdicao(c,it)}</td>`;
-        const marcador=(infoStatus&&!ehFonteDoStatus)?' <span class="reg R2" title="Replicado do lançamento mais recente deste cliente">auto</span>':'';
-        return `<td>${fmtCell(c,valorExibido)}${marcador}</td>`;
-      }
-      if(admin&&editavel(c))return `<td>${renderCelulaEdicao(c,it)}</td>`;
-      return `<td class="${num?'num':''}">${fmtCell(c,it.fields[c.name])}</td>`;
+      const valorExibido=valorParaColuna(c,it,mapaStatus);
+      const marcador=(c===csCol&&infoStatus&&!ehFonteDoStatus)?' <span class="reg R2" title="Replicado do lançamento mais recente deste cliente">auto</span>':'';
+      return `<td class="${num?'num':''}">${fmtCell(c,valorExibido)}${marcador}</td>`;
     }).join('');
-    const acoes=admin?`<td><button class="btn danger small" data-excluir="${escapeHtml(it.id)}" type="button">🗑</button></td>`:'';
+    const acoes=admin?`<td><button class="btn ghost small" data-editar="${escapeHtml(it.id)}" type="button">editar</button></td>`:'';
     return `<tr data-row-item="${escapeHtml(it.id)}">${tds}${acoes}</tr>`;
   }).join(''):`<tr><td colspan="${colunas.length+(admin?1:0)}" style="padding:14px;color:var(--texto-suave);">Nenhum registro encontrado.</td></tr>`;
   if(admin){
-    tbody.querySelectorAll('[data-edit-col]').forEach(el=>el.addEventListener('change',()=>onEditarCampo(el)));
-    tbody.querySelectorAll('[data-excluir]').forEach(b=>b.addEventListener('click',()=>onExcluirItem(b.dataset.excluir)));
+    tbody.querySelectorAll('[data-editar]').forEach(b=>b.addEventListener('click',()=>abrirModalRegistro(b.dataset.editar)));
   }
-  document.getElementById('contagem-dados').textContent=`${int(filtrados.length)} registro(s)`+(filtrados.length!==itens.length?` (de ${int(itens.length)})`:'')+` · página ${paginaAtual}/${totalPag}`;
+  document.getElementById('contagem-dados').textContent=`página ${paginaAtual}/${totalPag}`;
   document.getElementById('btn-pag-ant').disabled=paginaAtual<=1;
   document.getElementById('btn-pag-prox').disabled=paginaAtual>=totalPag;
 }
 document.getElementById('inp-busca-dados').addEventListener('input',e=>{filtroTexto=e.target.value;paginaAtual=1;renderDados();});
 document.getElementById('btn-pag-ant').addEventListener('click',()=>{if(paginaAtual>1){paginaAtual--;renderDados();}});
 document.getElementById('btn-pag-prox').addEventListener('click',()=>{paginaAtual++;renderDados();});
+document.getElementById('btn-limpar-filtros-dados').addEventListener('click',()=>{
+  filtroTexto='';document.getElementById('inp-busca-dados').value='';
+  filtrosColuna={};paginaAtual=1;renderFiltrosDados();renderDados();
+});
+function exportarCSV(){
+  const dados=itensFiltrados();
+  const mapaStatus=statusAtualPorCliente();
+  const cab=colunas.map(c=>`"${c.displayName.replace(/"/g,'""')}"`).join(';');
+  const linhas=dados.map(it=>colunas.map(c=>`"${fmtCell(c,valorParaColuna(c,it,mapaStatus)).replace(/"/g,'""')}"`).join(';'));
+  const csv=[cab].concat(linhas).join('\r\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='montagem_geral_mcpo_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+document.getElementById('btn-exportar-csv').addEventListener('click',exportarCSV);
 
-/* ---------- Escrita: editar / criar / excluir itens da lista ---------- */
-let salvandoCampos=new Set();
-async function onEditarCampo(el){
-  const itemId=el.dataset.item,colName=el.dataset.editCol;
-  const item=itens.find(i=>i.id===itemId);if(!item)return;
-  const col=colunas.find(c=>c.name===colName);if(!col)return;
-  const novoValor=valorDoInput(col,el);
-  const chave=itemId+'|'+colName;
-  if(salvandoCampos.has(chave))return;
-  salvandoCampos.add(chave);
-  setSyncStatus('⏳ salvando…','saving');
-  const res=await graphPatchItemFields(itemId,{[colName]:novoValor},item.eTag);
-  salvandoCampos.delete(chave);
-  if(res.ok){
-    item.fields[colName]=novoValor;item.eTag=res.etag||item.eTag;saveCache();
-    setSyncStatus('☁ salvo','ok');
-    renderPainel();
-    if(document.getElementById('pane-regional').classList.contains('active'))renderRegional();
-  }else if(res.status===412||res.status===409){
-    toast('Este registro foi alterado por outra pessoa — recarregando…');
-    await recarregarItem(itemId);renderDados();
+/* ---------- Modal de cadastro/edição (criar / editar / excluir) ---------- */
+let modalEditandoId=null;
+function campoHtmlModal(col,valorAtual,desabilitado,notaExtra){
+  const t=colType(col);
+  const idc='campo-modal-'+col.name;
+  let inputHtml='';
+  if(desabilitado){
+    inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(fmtCell(col,valorAtual))}" disabled>`;
+  }else if(t==='choice'&&col.choice&&Array.isArray(col.choice.choices)){
+    inputHtml=`<select id="${idc}"><option value="">—</option>${col.choice.choices.map(o=>`<option value="${escapeHtml(o)}" ${String(valorAtual)===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+  }else if(t==='boolean'){
+    inputHtml=`<input type="checkbox" id="${idc}" ${valorAtual?'checked':''} style="width:18px;height:18px;align-self:flex-start;">`;
+  }else if(t==='dateTime'){
+    inputHtml=`<input type="date" id="${idc}" value="${valorParaInputData(valorAtual)}">`;
+  }else if(t==='currency'||t==='number'){
+    inputHtml=`<input type="number" step="any" id="${idc}" value="${valorAtual==null?'':valorAtual}">`;
+  }else if(/observ|descri/i.test(col.displayName||'')){
+    inputHtml=`<textarea id="${idc}">${escapeHtml(valorAtual==null?'':String(valorAtual))}</textarea>`;
   }else{
-    toast('Não foi possível salvar. Confira o valor e tente novamente.');
-    setSyncStatus('⚠ falha ao salvar','warn');
+    inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
+  return `<div class="field"><label>${escapeHtml(col.displayName)}</label>${inputHtml}${notaExtra?`<span class="nota">${escapeHtml(notaExtra)}</span>`:''}</div>`;
+}
+function abrirModalRegistro(itemId){
+  if(!souAdmin()){toast('Somente administradores podem criar ou editar registros.');return;}
+  modalEditandoId=itemId;
+  const item=itemId?itens.find(i=>i.id===itemId):null;
+  document.getElementById('titulo-modal-registro').textContent=item?'Editar Registro':'Novo Registro';
+  document.getElementById('btn-excluir-registro').style.display=item?'':'none';
+  document.getElementById('status-modal-registro').textContent='';
+  const csCol=colStatus(),ccCol=colCliente();
+  const mapaStatus=statusAtualPorCliente();
+  const infoStatus=item?statusInfoDoItem(item,ccCol,mapaStatus):null;
+  const statusBloqueado=!!(item&&infoStatus&&infoStatus.itemId!==item.id);
+  document.getElementById('campos-modal-registro').innerHTML=colunas.map(c=>{
+    const valorAtual=item?item.fields[c.name]:null;
+    if(!editavel(c))return campoHtmlModal(c,valorAtual,true);
+    if(c===csCol&&statusBloqueado)return campoHtmlModal(c,valorParaColuna(c,item,mapaStatus),true,'Editável só no lançamento mais recente deste cliente');
+    return campoHtmlModal(c,valorAtual,false);
+  }).join('');
+  document.getElementById('overlay-registro').style.display='flex';
+}
+function fecharModalRegistro(){document.getElementById('overlay-registro').style.display='none';modalEditandoId=null;}
+document.getElementById('btn-fechar-modal-registro').addEventListener('click',fecharModalRegistro);
+document.getElementById('btn-novo-registro').addEventListener('click',()=>abrirModalRegistro(null));
+function coletarCamposDoFormulario(){
+  const campos={};
+  const csCol=colStatus(),ccCol=colCliente();
+  const itemAtual=modalEditandoId?itens.find(i=>i.id===modalEditandoId):null;
+  const mapaStatus=statusAtualPorCliente();
+  colunas.forEach(c=>{
+    if(!editavel(c))return;
+    if(c===csCol&&itemAtual){
+      const infoStatus=statusInfoDoItem(itemAtual,ccCol,mapaStatus);
+      if(infoStatus&&infoStatus.itemId!==itemAtual.id)return;
+    }
+    const el=document.getElementById('campo-modal-'+c.name);
+    if(!el||el.disabled)return;
+    campos[c.name]=valorDoInput(c,el);
+  });
+  return campos;
 }
 async function recarregarItem(itemId){
   const t=await getGraphToken(),s=await getSiteId(),lid=await getListId();
@@ -691,28 +766,48 @@ async function recarregarItem(itemId){
     saveCache();
   }catch(e){}
 }
-async function onExcluirItem(itemId){
-  if(!confirm('Excluir este registro da lista do SharePoint? Essa ação não pode ser desfeita.'))return;
-  setSyncStatus('⏳ excluindo…','saving');
-  const ok=await graphDeleteItem(itemId);
-  if(ok){
-    itens=itens.filter(i=>i.id!==itemId);saveCache();
-    setSyncStatus('☁ excluído','ok');toast('Registro excluído.');
-    renderAll();
+document.getElementById('btn-salvar-registro').addEventListener('click',async()=>{
+  const campos=coletarCamposDoFormulario();
+  const statusEl=document.getElementById('status-modal-registro');
+  statusEl.textContent='⏳ salvando…';
+  if(!modalEditandoId){
+    const novo=await graphCreateItem(campos);
+    if(novo){
+      itens.unshift(novo);saveCache();paginaAtual=1;
+      fecharModalRegistro();renderAll();
+      toast('Registro criado.');
+    }else{
+      statusEl.textContent='⚠ não foi possível criar o registro.';
+    }
   }else{
-    toast('Não foi possível excluir o registro.');setSyncStatus('⚠ falha ao excluir','warn');
+    const item=itens.find(i=>i.id===modalEditandoId);
+    if(!item){fecharModalRegistro();return;}
+    const res=await graphPatchItemFields(modalEditandoId,campos,item.eTag);
+    if(res.ok){
+      Object.assign(item.fields,campos);item.eTag=res.etag||item.eTag;saveCache();
+      fecharModalRegistro();renderAll();
+      toast('Registro salvo.');
+    }else if(res.status===412||res.status===409){
+      statusEl.textContent='⚠ este registro foi alterado por outra pessoa — recarregando…';
+      await recarregarItem(modalEditandoId);
+      abrirModalRegistro(modalEditandoId);
+    }else{
+      statusEl.textContent='⚠ não foi possível salvar. Confira os valores preenchidos.';
+    }
   }
-}
-document.getElementById('btn-novo-registro').addEventListener('click',async()=>{
-  if(!souAdmin()){toast('Somente administradores podem criar registros.');return;}
-  setSyncStatus('⏳ criando…','saving');
-  const novo=await graphCreateItem({});
-  if(novo){
-    itens.unshift(novo);saveCache();paginaAtual=1;
-    setSyncStatus('☁ criado','ok');renderAll();
-    toast('Registro criado — preencha os campos na tabela.');
+});
+document.getElementById('btn-excluir-registro').addEventListener('click',async()=>{
+  if(!modalEditandoId)return;
+  if(!confirm('Excluir este registro da lista do SharePoint? Essa ação não pode ser desfeita.'))return;
+  const statusEl=document.getElementById('status-modal-registro');
+  statusEl.textContent='⏳ excluindo…';
+  const ok=await graphDeleteItem(modalEditandoId);
+  if(ok){
+    itens=itens.filter(i=>i.id!==modalEditandoId);saveCache();
+    fecharModalRegistro();renderAll();
+    toast('Registro excluído.');
   }else{
-    toast('Não foi possível criar o registro.');setSyncStatus('⚠ falha ao criar','warn');
+    statusEl.textContent='⚠ não foi possível excluir.';
   }
 });
 

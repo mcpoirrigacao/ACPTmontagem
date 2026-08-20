@@ -338,17 +338,21 @@ function statusAtualPorCliente(){
   return resultado;
 }
 function valorTotalItem(fields){
-  const ctv=colTotalValor();
-  if(ctv&&fields[ctv.name]!=null&&fields[ctv.name]!=='')return n(fields[ctv.name]);
   const cv=colValor(),cq=colQtd();
-  const v=cv?n(fields[cv.name]):0;
-  return cq?v*n(fields[cq.name]||1):v;
+  if(cv){
+    const v=n(fields[cv.name]);
+    const qtdBruta=cq?fields[cq.name]:null;
+    const qtd=(qtdBruta!=null&&qtdBruta!=='')?n(qtdBruta):1; // sem quantidade lançada, considera 1
+    return v*qtd;
+  }
+  const ctv=colTotalValor();
+  return ctv?n(fields[ctv.name]):0;
 }
 function somaPorTipo(tipoAlvo,base){
   const ct=colTipo(),cv=colValor();
   if(!ct||!cv)return 0;
   const alvo=tipoAlvo.toUpperCase();
-  return base.filter(it=>String(it.fields[ct.name]||'').toUpperCase().trim()===alvo).reduce((a,it)=>a+n(it.fields[cv.name]),0);
+  return base.filter(it=>String(it.fields[ct.name]||'').toUpperCase().trim()===alvo).reduce((a,it)=>a+valorTotalItem(it.fields),0);
 }
 const CORES_TIPO={SAIDA:'#a3312a',ENTRADA:'#0a7517',NEGOCIADO:'#cf9b3e'};
 function corTipo(t){return CORES_TIPO[t]||'#5f6e62';}
@@ -433,7 +437,7 @@ function renderGraficoBalanco(base){
   const ct=colTipo(),cv=colValor();
   if(!ct||!cv){if(chartBalanco){chartBalanco.destroy();chartBalanco=null;}return;}
   const porTipo={};
-  base.forEach(it=>{const tp=String(it.fields[ct.name]||'(sem tipo)').toUpperCase().trim();porTipo[tp]=(porTipo[tp]||0)+n(it.fields[cv.name]);});
+  base.forEach(it=>{const tp=String(it.fields[ct.name]||'(sem tipo)').toUpperCase().trim();porTipo[tp]=(porTipo[tp]||0)+valorTotalItem(it.fields);});
   const labels=Object.keys(porTipo),dados=labels.map(l=>porTipo[l]),cores=labels.map(corTipo);
   if(chartBalanco)chartBalanco.destroy();
   chartBalanco=new Chart(canvas.getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Valor',data:dados,backgroundColor:cores}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:tooltipValorCompleto()},scales:{y:{ticks:{callback:v=>brlCompacto(v)}}}}});
@@ -461,7 +465,7 @@ function renderGraficoResultadoRegional(base){
   base.forEach(it=>{
     const reg=String(it.fields[cr.name]||'(sem regional)');
     const tipo=String(it.fields[ct.name]||'').toUpperCase().trim();
-    const val=n(it.fields[cv.name]);
+    const val=valorTotalItem(it.fields);
     porReg[reg]=porReg[reg]||0;
     if(tipo==='ENTRADA')porReg[reg]+=val;
     if(tipo==='SAIDA')porReg[reg]-=val;
@@ -479,7 +483,7 @@ function renderGraficoResultadoCliente(base){
   base.forEach(it=>{
     const cli=String(it.fields[cc.name]||'(sem cliente)');
     const tipo=String(it.fields[ct.name]||'').toUpperCase().trim();
-    const val=n(it.fields[cv.name]);
+    const val=valorTotalItem(it.fields);
     porCli[cli]=porCli[cli]||0;
     if(tipo==='ENTRADA')porCli[cli]+=val;
     if(tipo==='SAIDA')porCli[cli]-=val;
@@ -611,7 +615,7 @@ function atualizarResumoDados(filtrados){
   let texto=`${int(filtrados.length)} de ${int(itens.length)} registro(s)`;
   const cv=colValor();
   if(cv){
-    const soma=filtrados.reduce((a,it)=>a+n(it.fields[cv.name]),0);
+    const soma=filtrados.reduce((a,it)=>a+valorTotalItem(it.fields),0);
     texto+=` · ${brl(soma)}`;
   }
   el.textContent=texto;

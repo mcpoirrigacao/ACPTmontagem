@@ -201,7 +201,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
 
   <section class="pane" id="pane-obras">
     <h2 class="pane-title">Obras</h2>
-    <p class="pane-desc">Obras por cliente — o Status aqui é a informação oficial (editável direto, não depende mais dos lançamentos). <span class="somente-admin">Como admin, use "+ Nova Obra" ou "editar" em qualquer linha.</span></p>
+    <p class="pane-desc">Obras por cliente — o Status é calculado automaticamente pela Data de Início, Prazo e Pausas (fica "Andamento Atrasada" se passar do prazo, e "Concluída" quando você marcar o checkbox). <span class="somente-admin">Como admin, use "+ Nova Obra" ou "editar" em qualquer linha.</span></p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
       <button class="btn primary somente-admin" id="btn-nova-obra" type="button">+ Nova Obra</button>
     </div>
@@ -280,16 +280,8 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     </div>
     <div class="card somente-admin">
       <h3>Listas Configuráveis</h3>
-      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Itens que aparecem como opções nos formulários de Obras (Status), Clientes (Regional) e Lançamentos (Categoria).</p>
+      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Itens que aparecem como opções nos formulários de Clientes (Regional) e Lançamentos (Categoria). O Status das Obras agora é calculado automaticamente pelas datas — veja em Obras.</p>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));">
-        <div>
-          <div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:6px;">Status (Obras)</div>
-          <div id="lista-config-status"></div>
-          <div style="display:flex;gap:6px;margin-top:8px;">
-            <input type="text" id="inp-add-status" placeholder="Novo status" style="flex:1;border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.82rem;">
-            <button class="btn ghost small" id="btn-add-status" type="button">+</button>
-          </div>
-        </div>
         <div>
           <div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:6px;">Regionais (Clientes)</div>
           <div id="lista-config-regionais"></div>
@@ -526,7 +518,7 @@ function renderCardStatus(){
   const base=obrasFiltradasPeloPainel();
   if(!base.length){card.style.display='none';return;}
   const contagem={};
-  base.forEach(o=>{const v=o.status||'(vazio)';contagem[v]=(contagem[v]||0)+1;});
+  base.forEach(o=>{const v=statusEfetivo(o);contagem[v]=(contagem[v]||0)+1;});
   const total=base.length;
   const linhas=Object.entries(contagem).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
     const pctv=total?Math.round(v/total*100):0;
@@ -543,7 +535,7 @@ function renderCardPorObra(baseLancamentos){
     const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
     const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);
     const c=clientePorId(o.clienteId);
-    return {nome:(c?c.nome:'?')+' — '+o.nome,status:o.status||'—',custo,recebido,negociado,resultado:recebido-custo};
+    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),custo,recebido,negociado,resultado:recebido-custo};
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
   const limite=filtroCliente?linhas.length:Math.min(linhas.length,20);
   const linhasCorte=linhas.slice(0,limite);
@@ -584,7 +576,9 @@ function renderRegional(){
 /* ============================ AGENDA ============================ */
 let agendaAno=new Date().getFullYear(),agendaMes=new Date().getMonth();
 const CORES_STATUS_PALETA=['#0a7517','#c1541c','#1f8c33','#a3312a','#cf9b3e','#5f6e62','#03590f'];
+const CORES_STATUS_FIXAS={'Em andamento':'#0a7517','Pausada':'#5f6e62','Andamento Atrasada':'#a3312a','Concluída':'#1f8c33'};
 function corParaStatus(status){
+  if(CORES_STATUS_FIXAS[status])return CORES_STATUS_FIXAS[status];
   if(!status)return '#5f6e62';
   let h=0;for(let i=0;i<status.length;i++)h=(h*31+status.charCodeAt(i))>>>0;
   return CORES_STATUS_PALETA[h%CORES_STATUS_PALETA.length];
@@ -611,6 +605,21 @@ function diaEmPausa(obra,dataAtual){
     const pfDia=new Date(pf.getFullYear(),pf.getMonth(),pf.getDate());
     return dataAtual>=piDia&&dataAtual<=pfDia;
   });
+}
+/* Status "efetivo" da obra: sempre calculado a partir das datas/pausas/conclusão.
+   Só recorre ao campo status antigo (legado/migração) quando não há Data de Início definida —
+   nesse caso não há como calcular nada, então mantém o que já existia. */
+function statusEfetivo(obra){
+  if(obra.concluida)return 'Concluída';
+  if(!obra.dataInicio)return obra.status||'Em andamento';
+  const hoje=new Date();const hojeZerado=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  if(diaEmPausa(obra,hojeZerado))return 'Pausada';
+  const prevista=dataPrevistaConclusao(obra);
+  if(prevista){
+    const previstaDia=new Date(prevista.getFullYear(),prevista.getMonth(),prevista.getDate());
+    if(hojeZerado>previstaDia)return 'Andamento Atrasada';
+  }
+  return 'Em andamento';
 }
 function obrasNoIntervalo(){
   return obras.map(o=>{
@@ -642,10 +651,11 @@ function renderAgenda(){
     const chips=doDia.slice(0,limite).map(x=>{
       const label=(x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome;
       const pausadoHoje=diaEmPausa(x.obra,dataAtual);
-      const cor=corParaStatus(x.obra.status);
+      const statusAtual=statusEfetivo(x.obra);
+      const cor=corParaStatus(statusAtual);
       const estilo=pausadoHoje?`background:repeating-linear-gradient(45deg, ${cor}, ${cor} 4px, rgba(255,255,255,.55) 4px, rgba(255,255,255,.55) 8px);`:`background:${cor};`;
       const nota=pausadoHoje?' · pausada neste período':'';
-      return `<div class="agenda-chip" style="${estilo}" title="${escapeHtml(label+' · '+(x.obra.status||'sem status')+nota)}">${escapeHtml(label)}</div>`;
+      return `<div class="agenda-chip" style="${estilo}" title="${escapeHtml(label+' · '+statusAtual+nota)}">${escapeHtml(label)}</div>`;
     }).join('');
     const extra=doDia.length>limite?`<div class="agenda-mais">+${doDia.length-limite} mais</div>`:'';
     const classeHoje=(hojeStr===dataAtual.toDateString())?' hoje':'';
@@ -684,7 +694,7 @@ function renderObras(){
   tbody.innerHTML=lista.length?lista.map(o=>{
     const c=clientePorId(o.clienteId);
     const qtdLanc=lancamentos.filter(l=>l.obraId===o.id).length;
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(o.status||'—')}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
   }).join(''):`<tr><td colspan="${admin?7:6}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra cadastrada.</td></tr>`;
   if(admin)tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
   document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)';
@@ -790,11 +800,12 @@ const ESQUEMAS={
   obra:{titulo:'Obra',campos:[
     {chave:'clienteId',label:'Cliente',tipo:'clienteSelect',obrigatorio:true},
     {chave:'nome',label:'Nome da Obra',tipo:'text',obrigatorio:true},
-    {chave:'status',label:'Status',tipo:'statusSelect'},
     {chave:'categoria',label:'Categoria',tipo:'text'},
     {chave:'dataInicio',label:'Data de Início',tipo:'date'},
     {chave:'prazoDias',label:'Prazo Estimado (dias)',tipo:'number'},
     {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor'},
+    {chave:'concluida',label:'Concluído',tipo:'boolean'},
+    {chave:'status',label:'Status (calculado)',tipo:'statusComputado'},
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number'},
     {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
@@ -826,8 +837,11 @@ function campoHtmlGenerico(campo,valorAtual){
     inputHtml=`<input type="date" id="${idc}" value="${valorAtual||''}">`;
   }else if(campo.tipo==='select'){
     inputHtml=`<select id="${idc}"><option value="">—</option>${campo.opcoes.map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
-  }else if(campo.tipo==='statusSelect'){
-    inputHtml=`<select id="${idc}"><option value="">—</option>${(listasConfig.status||[]).map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+  }else if(campo.tipo==='boolean'){
+    inputHtml=`<input type="checkbox" id="${idc}" ${valorAtual?'checked':''} style="width:18px;height:18px;">`;
+  }else if(campo.tipo==='statusComputado'){
+    inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual||'')}" disabled>`+
+      `<span class="nota">Calculado pela Data de Início, Prazo, Pausas e Concluído — não editável direto</span>`;
   }else if(campo.tipo==='regionalSelect'){
     inputHtml=`<select id="${idc}"><option value="">—</option>${(listasConfig.regionais||[]).map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
   }else if(campo.tipo==='categoriaSelect'){
@@ -860,15 +874,35 @@ let pausasEmEdicao=[];
 function renderListaPausasEditor(){
   const cont=document.getElementById('campo-modal-pausas__lista');
   if(!cont)return;
-  if(!pausasEmEdicao.length){cont.innerHTML=`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhuma pausa registrada.</div>`;return;}
-  cont.innerHTML=pausasEmEdicao.map((p,i)=>{
-    const aberta=!p.fim;
-    const texto=aberta?`${fmtData(p.inicio)} → em andamento`:`${fmtData(p.inicio)} → ${fmtData(p.fim)}`;
-    const btnRetomar=aberta?`<button class="btn ghost small" data-retomar-pausa="${i}" type="button">Retomar hoje</button>`:'';
-    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(texto)}</span>${btnRetomar}<button class="btn danger small" data-rem-pausa="${i}" type="button">×</button></div>`;
-  }).join('');
-  cont.querySelectorAll('[data-rem-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao.splice(+b.dataset.remPausa,1);renderListaPausasEditor();};});
-  cont.querySelectorAll('[data-retomar-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao[+b.dataset.retomarPausa].fim=new Date().toISOString().slice(0,10);renderListaPausasEditor();};});
+  if(!pausasEmEdicao.length){cont.innerHTML=`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhuma pausa registrada.</div>`;}
+  else{
+    cont.innerHTML=pausasEmEdicao.map((p,i)=>{
+      const aberta=!p.fim;
+      const texto=aberta?`${fmtData(p.inicio)} → em andamento`:`${fmtData(p.inicio)} → ${fmtData(p.fim)}`;
+      const btnRetomar=aberta?`<button class="btn ghost small" data-retomar-pausa="${i}" type="button">Retomar hoje</button>`:'';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(texto)}</span>${btnRetomar}<button class="btn danger small" data-rem-pausa="${i}" type="button">×</button></div>`;
+    }).join('');
+    cont.querySelectorAll('[data-rem-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao.splice(+b.dataset.remPausa,1);renderListaPausasEditor();};});
+    cont.querySelectorAll('[data-retomar-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao[+b.dataset.retomarPausa].fim=new Date().toISOString().slice(0,10);renderListaPausasEditor();};});
+  }
+  atualizarStatusExibidoNoModal();
+}
+function statusEfetivoDoFormulario(){
+  const elIni=document.getElementById('campo-modal-dataInicio');
+  const elPrazo=document.getElementById('campo-modal-prazoDias');
+  const elConcluida=document.getElementById('campo-modal-concluida');
+  const obraVirtual={
+    dataInicio:elIni?elIni.value:'',
+    prazoDias:elPrazo&&elPrazo.value!==''?Number(elPrazo.value):null,
+    pausas:pausasEmEdicao,
+    concluida:elConcluida?elConcluida.checked:false,
+    status:modalEditandoId?((obras.find(o=>o.id===modalEditandoId)||{}).status||''):'',
+  };
+  return statusEfetivo(obraVirtual);
+}
+function atualizarStatusExibidoNoModal(){
+  const el=document.getElementById('campo-modal-status');
+  if(el)el.value=statusEfetivoDoFormulario();
 }
 function colecaoDe(entidade){return entidade==='cliente'?clientes:entidade==='obra'?obras:lancamentos;}
 function nomeColecaoDe(entidade){return entidade==='cliente'?'clientes':entidade==='obra'?'obras':'lancamentos';}
@@ -883,7 +917,10 @@ function abrirModal(entidade,id){
   const temBuscaObra=esquema.campos.some(c=>c.tipo==='obraSearchSelect');
   const temBuscaCategoria=esquema.campos.some(c=>c.tipo==='categoriaSearchSelect');
   if(entidade==='obra')pausasEmEdicao=(item&&Array.isArray(item.pausas))?JSON.parse(JSON.stringify(item.pausas)):[];
-  document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>campoHtmlGenerico(campo,item?item[campo.chave]:null)).join('')+
+  document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>{
+    if(campo.tipo==='statusComputado')return campoHtmlGenerico(campo,statusEfetivo(item||{dataInicio:'',prazoDias:null,pausas:[],concluida:false,status:''}));
+    return campoHtmlGenerico(campo,item?item[campo.chave]:null);
+  }).join('')+
     (temBuscaObra?`<datalist id="datalist-obras">${opcoesObrasOrdenadas().map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('')}</datalist>`:'')+
     (temBuscaCategoria?`<datalist id="datalist-categorias">${(listasConfig.categorias||[]).map(c=>`<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>`:'');
   esquema.campos.forEach(campo=>{
@@ -907,6 +944,12 @@ function abrirModal(entidade,id){
       document.getElementById('campo-modal-pausas__fim').value='';
       renderListaPausasEditor();
     });
+    const elIni=document.getElementById('campo-modal-dataInicio');
+    const elPrazo=document.getElementById('campo-modal-prazoDias');
+    const elConcluida=document.getElementById('campo-modal-concluida');
+    if(elIni)elIni.addEventListener('input',atualizarStatusExibidoNoModal);
+    if(elPrazo)elPrazo.addEventListener('input',atualizarStatusExibidoNoModal);
+    if(elConcluida)elConcluida.addEventListener('change',atualizarStatusExibidoNoModal);
   }
   document.getElementById('overlay-registro').style.display='flex';
 }
@@ -922,8 +965,10 @@ function coletarCampos(entidade){
       return;
     }
     if(campo.tipo==='pausasEditor'){obj[campo.chave]=pausasEmEdicao;return;}
+    if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
+    if(campo.tipo==='boolean'){obj[campo.chave]=el.checked;return;}
     obj[campo.chave]=campo.tipo==='number'?(el.value===''?null:Number(el.value)):el.value;
   });
   return obj;
@@ -1122,7 +1167,7 @@ async function salvarListas(){
   return ok;
 }
 function renderListasConfig(){
-  const mapa=[['status','lista-config-status'],['regionais','lista-config-regionais'],['categorias','lista-config-categorias']];
+  const mapa=[['regionais','lista-config-regionais'],['categorias','lista-config-categorias']];
   mapa.forEach(([chave,contId])=>{
     const cont=document.getElementById(contId);if(!cont)return;
     const itens=listasConfig[chave]||[];
@@ -1146,7 +1191,6 @@ async function adicionarNaLista(chave,inputId){
   renderListasConfig();
   if(ok)toast('Item adicionado.');
 }
-document.getElementById('btn-add-status').addEventListener('click',()=>adicionarNaLista('status','inp-add-status'));
 document.getElementById('btn-add-regional').addEventListener('click',()=>adicionarNaLista('regionais','inp-add-regional'));
 document.getElementById('btn-add-categoria').addEventListener('click',()=>adicionarNaLista('categorias','inp-add-categoria'));
 
@@ -1266,7 +1310,6 @@ async function executarMigracao(){
   const uni=(a,b)=>Array.from(new Set([...(a||[]),...(b||[])]));
   listasConfig.regionais=uni(listasConfig.regionais,clientes.map(c=>c.regional).filter(Boolean));
   listasConfig.categorias=uni(listasConfig.categorias,lancamentos.map(l=>l.categoria).filter(Boolean));
-  listasConfig.status=uni(listasConfig.status,obras.map(o=>o.status).filter(Boolean));
   statusEl.textContent='⏳ salvando…';
   const ok1=await salvarColecao('clientes'),ok2=await salvarColecao('obras'),ok3=await salvarColecao('lancamentos'),ok4=await salvarListas();
   if(ok1&&ok2&&ok3&&ok4){

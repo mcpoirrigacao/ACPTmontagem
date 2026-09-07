@@ -108,7 +108,8 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
   .pager{display:flex;align-items:center;gap:12px;margin-top:10px;font-size:.8rem;color:var(--texto-suave);flex-wrap:wrap;}
   .agenda-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
   .agenda-cab{font-size:.66rem;text-transform:uppercase;color:var(--texto-suave);text-align:center;padding:4px 0;font-weight:700;letter-spacing:.3px;}
-  .agenda-dia{background:#fffdf9;border:1px solid var(--borda);border-radius:4px;min-height:88px;padding:4px;font-size:.7rem;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+  .agenda-dia{background:#fffdf9;border:1px solid var(--borda);border-radius:4px;min-height:88px;padding:4px;font-size:.7rem;display:flex;flex-direction:column;gap:2px;overflow:hidden;cursor:pointer;transition:box-shadow .12s;}
+  .agenda-dia:not(.vazio):hover{box-shadow:0 0 0 2px var(--azul-claro) inset;}
   .agenda-dia.vazio{background:transparent;border:none;}
   .agenda-dia.hoje{border:2px solid var(--ferrugem);}
   .agenda-numero{font-weight:700;color:var(--texto-suave);font-size:.72rem;}
@@ -333,6 +334,15 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
       <button class="btn danger" id="btn-excluir-registro" type="button" style="display:none;">Excluir</button>
       <span id="status-modal-registro" style="font-size:.78rem;color:var(--texto-suave);"></span>
     </div>
+  </div>
+</div>
+<div class="overlay" id="overlay-dia-agenda">
+  <div class="box" style="max-width:520px;width:96%;text-align:left;max-height:82vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;">
+      <h2 id="titulo-dia-agenda" style="margin:0;">Dia</h2>
+      <button class="btn ghost small" id="btn-fechar-dia-agenda" type="button">✕ Fechar</button>
+    </div>
+    <div id="lista-dia-agenda"></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -690,10 +700,53 @@ function renderAgenda(){
     }).join('');
     const extra=doDia.length>limite?`<div class="agenda-mais">+${doDia.length-limite} mais</div>`:'';
     const classeHoje=(hojeStr===dataAtual.toDateString())?' hoje':'';
-    html+=`<div class="agenda-dia${classeHoje}"><div class="agenda-numero">${dia}</div>${chips}${extra}</div>`;
+    html+=`<div class="agenda-dia${classeHoje}" data-dia="${dia}"><div class="agenda-numero">${dia}</div>${chips}${extra}</div>`;
   }
-  document.getElementById('grid-agenda').innerHTML=html;
+  const grid=document.getElementById('grid-agenda');
+  grid.innerHTML=html;
+  grid.querySelectorAll('.agenda-dia[data-dia]').forEach(el=>{
+    el.addEventListener('click',()=>abrirDiaAgenda(Number(el.dataset.dia)));
+  });
 }
+function abrirDiaAgenda(dia){
+  const dataAtual=new Date(agendaAno,agendaMes,dia);
+  const itensObra=obrasNoIntervalo();
+  const doDia=itensObra.filter(x=>{
+    const ini=new Date(x.inicio.getFullYear(),x.inicio.getMonth(),x.inicio.getDate());
+    const fim=new Date(x.fim.getFullYear(),x.fim.getMonth(),x.fim.getDate());
+    return dataAtual>=ini&&dataAtual<=fim;
+  });
+  const nomesMesExt=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  document.getElementById('titulo-dia-agenda').textContent=`${dia} de ${nomesMesExt[agendaMes]} de ${agendaAno}`;
+  const admin=souAdmin();
+  const cont=document.getElementById('lista-dia-agenda');
+  if(!doDia.length){
+    cont.innerHTML=`<div style="color:var(--texto-suave);font-size:.85rem;">Nenhuma obra neste dia.</div>`;
+  }else{
+    cont.innerHTML=doDia.map(x=>{
+      const label=(x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome;
+      const statusAtual=statusEfetivo(x.obra);
+      const pausadoHoje=diaEmPausa(x.obra,dataAtual);
+      const cor=pausadoHoje?CORES_STATUS_FIXAS['Pausada']:corParaStatus(statusAtual);
+      const notaPausa=pausadoHoje?' (pausada neste período)':'';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--areia-escura);">
+        <span style="width:10px;height:10px;border-radius:50%;background:${cor};flex:0 0 auto;"></span>
+        <div style="flex:1;">
+          <div style="font-size:.86rem;font-weight:600;">${escapeHtml(label)}</div>
+          <div style="font-size:.74rem;color:var(--texto-suave);">${escapeHtml(statusAtual)}${escapeHtml(notaPausa)}</div>
+        </div>
+        ${admin?`<button class="btn ghost small" data-editar-obra-dia="${escapeHtml(x.obra.id)}" type="button">editar</button>`:''}
+      </div>`;
+    }).join('');
+    if(admin)cont.querySelectorAll('[data-editar-obra-dia]').forEach(b=>b.addEventListener('click',()=>{
+      fecharDiaAgenda();
+      abrirModal('obra',b.dataset.editarObraDia);
+    }));
+  }
+  document.getElementById('overlay-dia-agenda').style.display='flex';
+}
+function fecharDiaAgenda(){document.getElementById('overlay-dia-agenda').style.display='none';}
+document.getElementById('btn-fechar-dia-agenda').addEventListener('click',fecharDiaAgenda);
 document.getElementById('btn-agenda-ant').addEventListener('click',()=>{agendaMes--;if(agendaMes<0){agendaMes=11;agendaAno--;}renderAgenda();});
 document.getElementById('btn-agenda-prox').addEventListener('click',()=>{agendaMes++;if(agendaMes>11){agendaMes=0;agendaAno++;}renderAgenda();});
 document.getElementById('btn-agenda-hoje').addEventListener('click',()=>{const h=new Date();agendaAno=h.getFullYear();agendaMes=h.getMonth();renderAgenda();});

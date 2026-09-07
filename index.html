@@ -157,6 +157,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
       <div class="card chart-card"><h3>Balanço Financeiro <span class="h3-side">por tipo</span></h3><div class="chart-wrap" id="wrap-balanco"><canvas id="chart-balanco"></canvas></div></div>
       <div class="card chart-card"><h3>Custo por Categoria</h3><div class="chart-wrap" id="wrap-custo-categoria"><canvas id="chart-custo-categoria"></canvas></div></div>
     </div>
+    <div class="card" id="card-por-obra"></div>
   </section>
 
   <section class="pane" id="pane-regional">
@@ -251,6 +252,36 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
       <button class="btn primary" id="btn-migrar" type="button">Migrar da lista do SharePoint</button>
       <a href="https://maqcampoirrigacao.sharepoint.com/sites/ControleObra/Lists/Montagem%20Geral%20%20MCPO/AllItems.aspx" target="_blank" rel="noopener" class="btn ghost small" style="margin-left:8px;">Ver lista original ↗</a>
       <div id="status-migracao" style="font-size:.8rem;color:var(--texto-suave);margin-top:10px;"></div>
+    </div>
+    <div class="card somente-admin">
+      <h3>Listas Configuráveis</h3>
+      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Itens que aparecem como opções nos formulários de Obras (Status), Clientes (Regional) e Lançamentos (Categoria).</p>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));">
+        <div>
+          <div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:6px;">Status (Obras)</div>
+          <div id="lista-config-status"></div>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <input type="text" id="inp-add-status" placeholder="Novo status" style="flex:1;border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.82rem;">
+            <button class="btn ghost small" id="btn-add-status" type="button">+</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:6px;">Regionais (Clientes)</div>
+          <div id="lista-config-regionais"></div>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <input type="text" id="inp-add-regional" placeholder="Nova regional" style="flex:1;border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.82rem;">
+            <button class="btn ghost small" id="btn-add-regional" type="button">+</button>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:6px;">Categorias (Lançamentos)</div>
+          <div id="lista-config-categorias"></div>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <input type="text" id="inp-add-categoria" placeholder="Nova categoria" style="flex:1;border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.82rem;">
+            <button class="btn ghost small" id="btn-add-categoria" type="button">+</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="card somente-admin">
       <h3>Usuários &amp; Acesso <span class="h3-side">login Microsoft</span></h3>
@@ -464,6 +495,25 @@ function renderCardStatus(){
   card.innerHTML=`<h3>Por Status <span class="h3-side">obras</span></h3>${linhas}`;
   card.style.display='';
 }
+function renderCardPorObra(baseLancamentos){
+  const card=document.getElementById('card-por-obra');
+  const obrasBase=obrasFiltradasPeloPainel();
+  if(!obrasBase.length){card.style.display='none';return;}
+  const linhas=obrasBase.map(o=>{
+    const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
+    const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=somaPorTipo('NEGOCIADO',lancsObra);
+    const c=clientePorId(o.clienteId);
+    return {nome:(c?c.nome:'?')+' — '+o.nome,status:o.status||'—',custo,recebido,negociado,resultado:recebido-custo};
+  }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
+  const limite=filtroCliente?linhas.length:Math.min(linhas.length,20);
+  const linhasCorte=linhas.slice(0,limite);
+  card.innerHTML=`<h3>Por Obra <span class="h3-side">${filtroCliente?'obras de '+escapeHtml(filtroCliente):'análise individual, principais obras'}</span></h3>`+
+    `<div class="tablewrap"><table class="dt"><thead><tr><th>Obra</th><th>Status</th><th class="r">Custo</th><th class="r">Recebido</th><th class="r">Negociado</th><th class="r">Resultado</th></tr></thead><tbody>`+
+    linhasCorte.map(x=>`<tr><td>${escapeHtml(x.nome)}</td><td>${escapeHtml(x.status)}</td><td class="num">${brl(x.custo)}</td><td class="num">${brl(x.recebido)}</td><td class="num">${brl(x.negociado)}</td><td class="num" style="font-weight:700;color:${x.resultado<0?'var(--erro)':'var(--azul-claro)'};">${brl(x.resultado)}</td></tr>`).join('')+
+    `</tbody></table></div>`+
+    (linhas.length>limite?`<div style="font-size:.75rem;color:var(--texto-suave);margin-top:8px;">Mostrando ${limite} de ${linhas.length} obras — filtre por cliente ali no topo para ver todas as dele.</div>`:'');
+  card.style.display='';
+}
 
 /* ============================ PAINEL / REGIONAL ============================ */
 function renderPainel(){
@@ -480,6 +530,7 @@ function renderPainel(){
   renderGraficoResumoObra(base);
   renderGraficoBalanco(base);
   renderGraficoCustoCategoria(base);
+  renderCardPorObra(base);
 }
 function renderRegional(){
   renderFiltrosTopo('regional');
@@ -615,22 +666,22 @@ document.getElementById('btn-exportar-csv-lanc').addEventListener('click',export
 const ESQUEMAS={
   cliente:{titulo:'Cliente',campos:[
     {chave:'nome',label:'Nome do Cliente',tipo:'text',obrigatorio:true},
-    {chave:'regional',label:'Regional',tipo:'text'},
+    {chave:'regional',label:'Regional',tipo:'regionalSelect'},
     {chave:'contato',label:'Contato',tipo:'text'},
     {chave:'observacoes',label:'Observações',tipo:'textarea'},
   ]},
   obra:{titulo:'Obra',campos:[
     {chave:'clienteId',label:'Cliente',tipo:'clienteSelect',obrigatorio:true},
     {chave:'nome',label:'Nome da Obra',tipo:'text',obrigatorio:true},
-    {chave:'status',label:'Status',tipo:'select',opcoes:['Em andamento','Concluída','Pausada']},
+    {chave:'status',label:'Status',tipo:'statusSelect'},
     {chave:'categoria',label:'Categoria',tipo:'text'},
     {chave:'dataInicio',label:'Data de Início',tipo:'date'},
     {chave:'descricao',label:'Descrição',tipo:'textarea'},
   ]},
   lancamento:{titulo:'Lançamento',campos:[
-    {chave:'obraId',label:'Obra',tipo:'obraSelect',obrigatorio:true},
+    {chave:'obraId',label:'Obra',tipo:'obraSearchSelect',obrigatorio:true},
     {chave:'tipo',label:'Tipo',tipo:'select',opcoes:['SAIDA','ENTRADA','NEGOCIADO'],obrigatorio:true},
-    {chave:'categoria',label:'Categoria',tipo:'text'},
+    {chave:'categoria',label:'Categoria',tipo:'categoriaSelect'},
     {chave:'valor',label:'Valor (R$)',tipo:'number'},
     {chave:'quantidade',label:'Quantidade',tipo:'number'},
     {chave:'data',label:'Data',tipo:'date'},
@@ -638,6 +689,9 @@ const ESQUEMAS={
   ]},
 };
 let modalEntidade=null,modalEditandoId=null;
+function opcoesObrasOrdenadas(){
+  return [...obras].map(o=>{const c=clientePorId(o.clienteId);return {id:o.id,label:(c?c.nome:'?')+' — '+o.nome};}).sort((a,b)=>a.label.localeCompare(b.label));
+}
 function campoHtmlGenerico(campo,valorAtual){
   const idc='campo-modal-'+campo.chave;
   let inputHtml='';
@@ -649,10 +703,20 @@ function campoHtmlGenerico(campo,valorAtual){
     inputHtml=`<input type="date" id="${idc}" value="${valorAtual||''}">`;
   }else if(campo.tipo==='select'){
     inputHtml=`<select id="${idc}"><option value="">—</option>${campo.opcoes.map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+  }else if(campo.tipo==='statusSelect'){
+    inputHtml=`<select id="${idc}"><option value="">—</option>${(listasConfig.status||[]).map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+  }else if(campo.tipo==='regionalSelect'){
+    inputHtml=`<select id="${idc}"><option value="">—</option>${(listasConfig.regionais||[]).map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
+  }else if(campo.tipo==='categoriaSelect'){
+    inputHtml=`<select id="${idc}"><option value="">—</option>${(listasConfig.categorias||[]).map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
   }else if(campo.tipo==='clienteSelect'){
     inputHtml=`<select id="${idc}"><option value="">—</option>${[...clientes].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(c=>`<option value="${escapeHtml(c.id)}" ${valorAtual===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('')}</select>`;
-  }else if(campo.tipo==='obraSelect'){
-    inputHtml=`<select id="${idc}"><option value="">—</option>${[...obras].map(o=>{const c=clientePorId(o.clienteId);return {o,label:(c?c.nome:'?')+' — '+o.nome};}).sort((a,b)=>a.label.localeCompare(b.label)).map(x=>`<option value="${escapeHtml(x.o.id)}" ${valorAtual===x.o.id?'selected':''}>${escapeHtml(x.label)}</option>`).join('')}</select>`;
+  }else if(campo.tipo==='obraSearchSelect'){
+    const opcoes=opcoesObrasOrdenadas();
+    const atual=opcoes.find(o=>o.id===valorAtual);
+    inputHtml=`<input type="text" id="${idc}" list="datalist-obras" value="${escapeHtml(atual?atual.label:'')}" placeholder="Digite para buscar a obra...">`+
+      `<input type="hidden" id="${idc}__id" value="${escapeHtml(valorAtual||'')}">`+
+      `<span class="nota">Busque por cliente ou nome da obra</span>`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
@@ -668,7 +732,18 @@ function abrirModal(entidade,id){
   document.getElementById('titulo-modal-registro').textContent=(item?'Editar ':'Novo(a) ')+esquema.titulo;
   document.getElementById('btn-excluir-registro').style.display=item?'':'none';
   document.getElementById('status-modal-registro').textContent='';
-  document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>campoHtmlGenerico(campo,item?item[campo.chave]:null)).join('');
+  const temBuscaObra=esquema.campos.some(c=>c.tipo==='obraSearchSelect');
+  document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>campoHtmlGenerico(campo,item?item[campo.chave]:null)).join('')+
+    (temBuscaObra?`<datalist id="datalist-obras">${opcoesObrasOrdenadas().map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('')}</datalist>`:'');
+  esquema.campos.forEach(campo=>{
+    if(campo.tipo!=='obraSearchSelect')return;
+    const el=document.getElementById('campo-modal-'+campo.chave),hid=document.getElementById('campo-modal-'+campo.chave+'__id');
+    if(!el||!hid)return;
+    el.addEventListener('input',()=>{
+      const achado=opcoesObrasOrdenadas().find(o=>o.label===el.value);
+      hid.value=achado?achado.id:'';
+    });
+  });
   document.getElementById('overlay-registro').style.display='flex';
 }
 function fecharModalRegistro(){document.getElementById('overlay-registro').style.display='none';modalEntidade=null;modalEditandoId=null;}
@@ -677,6 +752,11 @@ function coletarCampos(entidade){
   const esquema=ESQUEMAS[entidade];
   const obj={};
   esquema.campos.forEach(campo=>{
+    if(campo.tipo==='obraSearchSelect'){
+      const hid=document.getElementById('campo-modal-'+campo.chave+'__id');
+      obj[campo.chave]=hid?hid.value:'';
+      return;
+    }
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
     obj[campo.chave]=campo.tipo==='number'?(el.value===''?null:Number(el.value)):el.value;
@@ -751,6 +831,7 @@ function renderParametros(){
     `Clientes: <b>${clientes.length}</b> · Obras: <b>${obras.length}</b> · Lançamentos: <b>${lancamentos.length}</b>`+
     (ultimoErro?`<br><span style="color:var(--erro);">⚠ Último erro: ${escapeHtml(ultimoErro)}</span>`:'');
   renderUsuarios();
+  renderListasConfig();
 }
 
 /* ==================== MICROSOFT GRAPH / SHAREPOINT (armazenamento em JSON) ==================== */
@@ -762,6 +843,7 @@ const SP_SITE_PATH='/sites/MCPOIRRIGACAO';
 const SP_BIBLIOTECA='Documentos Compartilhados';
 const SP_PASTA='Execução de Montagem';
 const ACESSO_FILE='mcpo_acesso.json';
+const LISTAS_FILE='mcpo_listas.json';
 const CLIENTES_FILE='mcpo_clientes.json';
 const OBRAS_FILE='mcpo_obras.json';
 const LANCAMENTOS_FILE='mcpo_lancamentos.json';
@@ -846,7 +928,62 @@ async function saveAcesso(){
   if(!ok)toast('Não foi possível salvar os usuários.');
 }
 
-/* ==================== MIGRAÇÃO DA LISTA ANTIGA (uso único) ==================== */
+/* ==================== LISTAS CONFIGURÁVEIS (Status/Regional/Categoria) ==================== */
+let listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[]};
+let listasEtag=null;
+async function carregarListas(){
+  const r=await graphGetJsonEtag(spPath(LISTAS_FILE));
+  if(r.ok&&r.data)listasConfig=Object.assign({status:[],regionais:[],categorias:[]},r.data);
+  if(r.ok)listasEtag=r.etag;
+}
+async function salvarListas(){
+  if(!msAccount){toast('Entre com o Microsoft para gerenciar listas.');return false;}
+  await ensureFolder();let ok=false,tent=0;
+  const uni=(a,b)=>Array.from(new Set([...(a||[]),...(b||[])]));
+  while(tent<5&&!ok){tent++;
+    const res=await graphPutEtag(spPath(LISTAS_FILE),new TextEncoder().encode(JSON.stringify(listasConfig)),listasEtag);
+    if(res.ok){listasEtag=res.etag||listasEtag;ok=true;}
+    else if(res.status===412||res.status===409){
+      const servidor=await graphGetJsonEtag(spPath(LISTAS_FILE));
+      if(servidor.ok&&servidor.data){
+        ['status','regionais','categorias'].forEach(k=>{listasConfig[k]=uni(servidor.data[k],listasConfig[k]);});
+        listasEtag=servidor.etag;
+      }else break;
+    }else break;
+  }
+  if(!ok)toast('Não foi possível salvar as listas.');
+  return ok;
+}
+function renderListasConfig(){
+  const mapa=[['status','lista-config-status'],['regionais','lista-config-regionais'],['categorias','lista-config-categorias']];
+  mapa.forEach(([chave,contId])=>{
+    const cont=document.getElementById(contId);if(!cont)return;
+    const itens=listasConfig[chave]||[];
+    cont.innerHTML=itens.length?itens.map((v,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.85rem;"><span style="flex:1;">${escapeHtml(v)}</span><button class="btn danger small" data-rem-lista="${chave}" data-idx="${i}" type="button">×</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhum item cadastrado.</div>`;
+  });
+  document.querySelectorAll('[data-rem-lista]').forEach(b=>{
+    b.onclick=async()=>{
+      const chave=b.dataset.remLista,idx=+b.dataset.idx;
+      listasConfig[chave].splice(idx,1);
+      await salvarListas();renderListasConfig();
+    };
+  });
+}
+async function adicionarNaLista(chave,inputId){
+  const inp=document.getElementById(inputId);
+  const v=inp.value.trim();if(!v)return;
+  listasConfig[chave]=listasConfig[chave]||[];
+  if(!listasConfig[chave].includes(v))listasConfig[chave].push(v);
+  inp.value='';
+  const ok=await salvarListas();
+  renderListasConfig();
+  if(ok)toast('Item adicionado.');
+}
+document.getElementById('btn-add-status').addEventListener('click',()=>adicionarNaLista('status','inp-add-status'));
+document.getElementById('btn-add-regional').addEventListener('click',()=>adicionarNaLista('regionais','inp-add-regional'));
+document.getElementById('btn-add-categoria').addEventListener('click',()=>adicionarNaLista('categorias','inp-add-categoria'));
+
+
 const OLD_SP_HOSTNAME='maqcampoirrigacao.sharepoint.com';
 const OLD_SP_SITE_PATH='/sites/ControleObra';
 const OLD_LISTA_NOME='Montagem Geral MCPO';
@@ -954,9 +1091,13 @@ async function executarMigracao(){
   statusEl.textContent=`⏳ migrando ${itensAntigos.length} registro(s)…`;
   const resultado=migrarDados(colunasAntigas,itensAntigos);
   clientes=resultado.clientes;obras=resultado.obras;lancamentos=resultado.lancamentos;
+  const uni=(a,b)=>Array.from(new Set([...(a||[]),...(b||[])]));
+  listasConfig.regionais=uni(listasConfig.regionais,clientes.map(c=>c.regional).filter(Boolean));
+  listasConfig.categorias=uni(listasConfig.categorias,lancamentos.map(l=>l.categoria).filter(Boolean));
+  listasConfig.status=uni(listasConfig.status,obras.map(o=>o.status).filter(Boolean));
   statusEl.textContent='⏳ salvando…';
-  const ok1=await salvarColecao('clientes'),ok2=await salvarColecao('obras'),ok3=await salvarColecao('lancamentos');
-  if(ok1&&ok2&&ok3){
+  const ok1=await salvarColecao('clientes'),ok2=await salvarColecao('obras'),ok3=await salvarColecao('lancamentos'),ok4=await salvarListas();
+  if(ok1&&ok2&&ok3&&ok4){
     saveCache();
     statusEl.textContent=`✓ Migração concluída: ${clientes.length} cliente(s), ${obras.length} obra(s), ${lancamentos.length} lançamento(s). A lista antiga não foi alterada.`;
     toast('Migração concluída.');renderAll();
@@ -992,7 +1133,7 @@ function renderUsuarios(){
 }
 document.getElementById('btn-add-admin').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-admin').value.trim().toLowerCase();if(!em)return;if(!acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em))acesso.emailsAutorizados.push(em);acesso.emailsComuns=acesso.emailsComuns.filter(x=>x.toLowerCase()!==em);document.getElementById('inp-novo-admin').value='';await saveAcesso();renderUsuarios();applyAccess();toast('Admin adicionado.');});
 document.getElementById('btn-add-comum').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-comum').value.trim().toLowerCase();if(!em)return;if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em)){toast('Já é admin.');return;}if(!acesso.emailsComuns.map(x=>x.toLowerCase()).includes(em))acesso.emailsComuns.push(em);document.getElementById('inp-novo-comum').value='';await saveAcesso();renderUsuarios();toast('Usuário adicionado.');});
-document.getElementById('btn-sync').addEventListener('click',async()=>{if(!msAccount){toast('Entre com o Microsoft primeiro.');return;}await carregarAcesso();await carregarDados(false);renderParametros();});
+document.getElementById('btn-sync').addEventListener('click',async()=>{if(!msAccount){toast('Entre com o Microsoft primeiro.');return;}await carregarAcesso();await carregarListas();await carregarDados(false);renderParametros();});
 
 /* ==================== LOGIN / INIT ==================== */
 async function initAuth(){
@@ -1000,7 +1141,7 @@ async function initAuth(){
     await loadMsal();const M=window.msal&&window.msal.PublicClientApplication;if(!M)throw new Error('MSAL');
     msalInstance=new M(MSAL_CONFIG);await msalInstance.initialize();msalReady=true;
     const accs=msalInstance.getAllAccounts();
-    if(accs.length){msAccount=accs[0];await carregarAcesso();await carregarDados(true);}
+    if(accs.length){msAccount=accs[0];await carregarAcesso();await carregarListas();await carregarDados(true);}
     updateLoginUI();applyAccess();startPolling();renderAll();
   }catch(e){msalReady=false;document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';const info=document.getElementById('ms-user-info');info.textContent='(modo local — login indisponível)';info.style.display='block';}
 }
@@ -1008,7 +1149,7 @@ function updateLoginUI(){const lbl=document.getElementById('ms-login-label'),inf
 document.getElementById('btn-ms-login').addEventListener('click',async()=>{
   if(!msalInstance){toast('Autenticação inicializando — tente de novo.');return;}
   if(msAccount){if(confirm('Sair de '+msAccount.username+'?')){try{await msalInstance.logoutPopup({account:msAccount});}catch(e){}msAccount=null;updateLoginUI();applyAccess();}return;}
-  try{document.getElementById('ms-login-label').textContent='⏳ Abrindo login...';const resp=await msalInstance.loginPopup({scopes:GRAPH_SCOPES});msAccount=resp.account;updateLoginUI();await carregarAcesso();await carregarDados(true);applyAccess();renderAll();toast('Logado como '+msAccount.username);}
+  try{document.getElementById('ms-login-label').textContent='⏳ Abrindo login...';const resp=await msalInstance.loginPopup({scopes:GRAPH_SCOPES});msAccount=resp.account;updateLoginUI();await carregarAcesso();await carregarListas();await carregarDados(true);applyAccess();renderAll();toast('Logado como '+msAccount.username);}
   catch(e){document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';toast('Erro no login: '+(e.errorCode||e.message||'desconhecido'));}
 });
 

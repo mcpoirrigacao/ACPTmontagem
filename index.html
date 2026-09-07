@@ -97,7 +97,8 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
   .btn.danger:hover{background:#fbeceb;}
   .btn.small{padding:5px 10px;font-size:.72rem;}
   .filtros-topo{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
-  .filtros-topo select,.filtros-topo input[type=date]{border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.8rem;font-family:var(--fonte-corpo);background:#fffdf9;color:var(--texto);}
+  .filtros-topo select,.filtros-topo input[type=date],.filtros-topo input[type=text]{border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.8rem;font-family:var(--fonte-corpo);background:#fffdf9;color:var(--texto);}
+  .filtros-topo input[type=text]{min-width:180px;}
   .chart-card{padding:14px 16px 10px;}
   .chart-wrap{position:relative;height:340px;}
   .toolbar-dados{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
@@ -379,13 +380,19 @@ const CORES_TIPO={SAIDA:'#a3312a',ENTRADA:'#0a7517',NEGOCIADO:'#cf9b3e'};
 function corTipo(t){return CORES_TIPO[t]||'#5f6e62';}
 
 /* ============================ FILTROS GLOBAIS (Painel + Regional) ============================ */
-let filtroCliente='',filtroRegional='',filtroDataDe='',filtroDataAte='';
+let filtroCliente='',filtroRegional='',filtroObra='',filtroDataDe='',filtroDataAte='';
 function opcoesClientesDistintos(){return clientes.map(c=>c.nome).filter(Boolean).sort();}
 function opcoesRegionaisDistintas(){return Array.from(new Set(clientes.map(c=>c.regional).filter(Boolean))).sort();}
+function opcoesObrasFiltro(){
+  let lista=obras;
+  if(filtroCliente)lista=lista.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroCliente;});
+  return lista.map(o=>{const c=clientePorId(o.clienteId);return {id:o.id,label:(c?c.nome:'?')+' — '+o.nome};}).sort((a,b)=>a.label.localeCompare(b.label));
+}
 function lancamentosFiltradosGlobal(){
   let arr=lancamentos;
   if(filtroCliente)arr=arr.filter(l=>nomeClienteDoLancamento(l)===filtroCliente);
   if(filtroRegional)arr=arr.filter(l=>regionalDoLancamento(l)===filtroRegional);
+  if(filtroObra)arr=arr.filter(l=>l.obraId===filtroObra);
   if(filtroDataDe||filtroDataAte){
     arr=arr.filter(l=>{
       if(!l.data)return false;
@@ -401,29 +408,38 @@ function obrasFiltradasPeloPainel(){
   let arr=obras;
   if(filtroCliente)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroCliente;});
   if(filtroRegional)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.regional===filtroRegional;});
+  if(filtroObra)arr=arr.filter(o=>o.id===filtroObra);
   return arr;
 }
 function renderFiltrosTopo(prefix){
   const wrap=document.getElementById('filtros-topo-'+prefix);if(!wrap)return;
-  const optsCliente=opcoesClientesDistintos(),optsRegional=opcoesRegionaisDistintas();
-  const temFiltro=filtroCliente||filtroRegional||filtroDataDe||filtroDataAte;
+  const optsCliente=opcoesClientesDistintos(),optsRegional=opcoesRegionaisDistintas(),optsObra=opcoesObrasFiltro();
+  const temFiltro=filtroCliente||filtroRegional||filtroObra||filtroDataDe||filtroDataAte;
   wrap.innerHTML=
-    `<select data-ftipo="cliente"><option value="">Cliente: todos</option>${optsCliente.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroCliente?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`+
+    `<input type="text" data-ftipo="cliente" list="datalist-clientes-${prefix}" value="${escapeHtml(filtroCliente)}" placeholder="Cliente: todos">`+
+    `<datalist id="datalist-clientes-${prefix}">${optsCliente.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('')}</datalist>`+
     `<select data-ftipo="regional"><option value="">Regional: todos</option>${optsRegional.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroRegional?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`+
+    `<select data-ftipo="obra"><option value="">Obra: todas</option>${optsObra.map(o=>`<option value="${escapeHtml(o.id)}" ${o.id===filtroObra?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`+
     `<input type="date" data-ftipo="dataDe" value="${filtroDataDe}" title="Data inicial"><input type="date" data-ftipo="dataAte" value="${filtroDataAte}" title="Data final">`+
     (temFiltro?`<button type="button" class="btn ghost small" data-flimpar="1">Limpar filtros</button>`:'');
   wrap.querySelectorAll('[data-ftipo]').forEach(el=>{
-    el.addEventListener('change',()=>{
+    const evento=(el.tagName==='INPUT'&&el.type==='text')?'input':'change';
+    el.addEventListener(evento,()=>{
       const tipo=el.dataset.ftipo;
-      if(tipo==='cliente')filtroCliente=el.value;
+      if(tipo==='cliente'){
+        const valido=el.value===''||optsCliente.includes(el.value);
+        if(!valido)return;
+        filtroCliente=el.value;filtroObra='';
+      }
       if(tipo==='regional')filtroRegional=el.value;
+      if(tipo==='obra')filtroObra=el.value;
       if(tipo==='dataDe')filtroDataDe=el.value;
       if(tipo==='dataAte')filtroDataAte=el.value;
       renderPainel();renderRegional();
     });
   });
   const btnLimpar=wrap.querySelector('[data-flimpar]');
-  if(btnLimpar)btnLimpar.addEventListener('click',()=>{filtroCliente='';filtroRegional='';filtroDataDe='';filtroDataAte='';renderPainel();renderRegional();});
+  if(btnLimpar)btnLimpar.addEventListener('click',()=>{filtroCliente='';filtroRegional='';filtroObra='';filtroDataDe='';filtroDataAte='';renderPainel();renderRegional();});
 }
 
 /* ============================ GRÁFICOS (Chart.js) ============================ */

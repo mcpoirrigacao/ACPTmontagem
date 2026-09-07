@@ -208,7 +208,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <div class="card">
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Atraso</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
           <tbody id="tbody-obras"></tbody>
         </table>
       </div>
@@ -218,7 +218,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
 
   <section class="pane" id="pane-agenda">
     <h2 class="pane-title">Agenda</h2>
-    <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status. Períodos de pausa aparecem com textura listrada, e a previsão de conclusão se ajusta automaticamente pelo tempo pausado.</p>
+    <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status. Períodos de pausa aparecem em cinza sólido, e obras atrasadas continuam aparecendo até serem concluídas.</p>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn ghost small" id="btn-agenda-ant" type="button">‹ Mês anterior</button>
       <h3 id="titulo-agenda" style="margin:0;font-family:var(--fonte-titulo);color:var(--azul-escuro);min-width:160px;text-align:center;"></h3>
@@ -535,13 +535,13 @@ function renderCardPorObra(baseLancamentos){
     const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
     const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);
     const c=clientePorId(o.clienteId);
-    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),custo,recebido,negociado,resultado:recebido-custo};
+    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),atraso:textoAtraso(o),diasAtraso:diasAtraso(o),custo,recebido,negociado,resultado:recebido-custo};
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
   const limite=filtroCliente?linhas.length:Math.min(linhas.length,20);
   const linhasCorte=linhas.slice(0,limite);
   card.innerHTML=`<h3>Por Obra <span class="h3-side">${filtroCliente?'obras de '+escapeHtml(filtroCliente):'análise individual, principais obras'}</span></h3>`+
-    `<div class="tablewrap"><table class="dt"><thead><tr><th>Obra</th><th>Status</th><th class="r">Custo</th><th class="r">Recebido</th><th class="r">Negociado</th><th class="r">Resultado</th></tr></thead><tbody>`+
-    linhasCorte.map(x=>`<tr><td>${escapeHtml(x.nome)}</td><td>${escapeHtml(x.status)}</td><td class="num">${brl(x.custo)}</td><td class="num">${brl(x.recebido)}</td><td class="num">${brl(x.negociado)}</td><td class="num" style="font-weight:700;color:${x.resultado<0?'var(--erro)':'var(--azul-claro)'};">${brl(x.resultado)}</td></tr>`).join('')+
+    `<div class="tablewrap"><table class="dt"><thead><tr><th>Obra</th><th>Status</th><th>Atraso</th><th class="r">Custo</th><th class="r">Recebido</th><th class="r">Negociado</th><th class="r">Resultado</th></tr></thead><tbody>`+
+    linhasCorte.map(x=>`<tr><td>${escapeHtml(x.nome)}</td><td>${escapeHtml(x.status)}</td><td style="${(x.diasAtraso!==null&&x.diasAtraso>0)?'color:var(--erro);font-weight:700;':''}">${escapeHtml(x.atraso)}</td><td class="num">${brl(x.custo)}</td><td class="num">${brl(x.recebido)}</td><td class="num">${brl(x.negociado)}</td><td class="num" style="font-weight:700;color:${x.resultado<0?'var(--erro)':'var(--azul-claro)'};">${brl(x.resultado)}</td></tr>`).join('')+
     `</tbody></table></div>`+
     (linhas.length>limite?`<div style="font-size:.75rem;color:var(--texto-suave);margin-top:8px;">Mostrando ${limite} de ${linhas.length} obras — filtre por cliente ali no topo para ver todas as dele.</div>`:'');
   card.style.display='';
@@ -621,12 +621,43 @@ function statusEfetivo(obra){
   }
   return 'Em andamento';
 }
+/* Métrica de atraso: compara a data prevista de conclusão com a data real de conclusão
+   (se já concluída) ou com hoje (se ainda em andamento/atrasada). Positivo = dias de atraso;
+   negativo = dias de adiantamento; null = não há previsão calculável (sem Data de Início). */
+function diasAtraso(obra){
+  const prevista=dataPrevistaConclusao(obra);
+  if(!prevista)return null;
+  const previstaDia=new Date(prevista.getFullYear(),prevista.getMonth(),prevista.getDate());
+  let referencia;
+  if(obra.concluida){
+    if(!obra.dataConclusao)return null;
+    const dc=new Date(obra.dataConclusao);
+    if(isNaN(dc))return null;
+    referencia=new Date(dc.getFullYear(),dc.getMonth(),dc.getDate());
+  }else{
+    const hoje=new Date();
+    referencia=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  }
+  return Math.round((referencia.getTime()-previstaDia.getTime())/86400000);
+}
+function textoAtraso(obra){
+  const d=diasAtraso(obra);
+  if(d===null)return '—';
+  if(d>0)return `${d} dia(s) atrasada`;
+  if(d<0)return `${Math.abs(d)} dia(s) adiantada`;
+  return 'no prazo';
+}
 function obrasNoIntervalo(){
   return obras.map(o=>{
     if(!o.dataInicio)return null;
     const inicio=new Date(o.dataInicio);
     if(isNaN(inicio))return null;
-    const fim=dataPrevistaConclusao(o)||inicio;
+    let fim=dataPrevistaConclusao(o)||inicio;
+    if(!o.concluida){
+      const hoje=new Date();
+      const hojeZerado=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+      if(hojeZerado>fim)fim=hojeZerado; // atrasada: continua aparecendo até hoje, enquanto não for concluída
+    }
     return {obra:o,cliente:clientePorId(o.clienteId),inicio,fim};
   }).filter(Boolean);
 }
@@ -653,7 +684,7 @@ function renderAgenda(){
       const pausadoHoje=diaEmPausa(x.obra,dataAtual);
       const statusAtual=statusEfetivo(x.obra);
       const cor=corParaStatus(statusAtual);
-      const estilo=pausadoHoje?`background:repeating-linear-gradient(45deg, ${cor}, ${cor} 4px, rgba(255,255,255,.55) 4px, rgba(255,255,255,.55) 8px);`:`background:${cor};`;
+      const estilo=`background:${pausadoHoje?CORES_STATUS_FIXAS['Pausada']:cor};`;
       const nota=pausadoHoje?' · pausada neste período':'';
       return `<div class="agenda-chip" style="${estilo}" title="${escapeHtml(label+' · '+statusAtual+nota)}">${escapeHtml(label)}</div>`;
     }).join('');
@@ -694,8 +725,10 @@ function renderObras(){
   tbody.innerHTML=lista.length?lista.map(o=>{
     const c=clientePorId(o.clienteId);
     const qtdLanc=lancamentos.filter(l=>l.obraId===o.id).length;
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
-  }).join(''):`<tr><td colspan="${admin?7:6}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra cadastrada.</td></tr>`;
+    const dAtraso=diasAtraso(o);
+    const corAtraso=(dAtraso!==null&&dAtraso>0)?'color:var(--erro);font-weight:700;':'';
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
+  }).join(''):`<tr><td colspan="${admin?8:7}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra cadastrada.</td></tr>`;
   if(admin)tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
   document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)';
 }
@@ -805,6 +838,7 @@ const ESQUEMAS={
     {chave:'prazoDias',label:'Prazo Estimado (dias)',tipo:'number'},
     {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor'},
     {chave:'concluida',label:'Concluído',tipo:'boolean'},
+    {chave:'dataConclusao',label:'Data de Conclusão',tipo:'date'},
     {chave:'status',label:'Status (calculado)',tipo:'statusComputado'},
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number'},
     {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
@@ -841,7 +875,7 @@ function campoHtmlGenerico(campo,valorAtual){
     inputHtml=`<input type="checkbox" id="${idc}" ${valorAtual?'checked':''} style="width:18px;height:18px;">`;
   }else if(campo.tipo==='statusComputado'){
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual||'')}" disabled>`+
-      `<span class="nota">Calculado pela Data de Início, Prazo, Pausas e Concluído — não editável direto</span>`;
+      `<span class="nota" id="campo-modal-atraso-info"></span>`;
   }else if(campo.tipo==='regionalSelect'){
     inputHtml=`<select id="${idc}"><option value="">—</option>${(listasConfig.regionais||[]).map(o=>`<option value="${escapeHtml(o)}" ${valorAtual===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`;
   }else if(campo.tipo==='categoriaSelect'){
@@ -888,21 +922,28 @@ function renderListaPausasEditor(){
   atualizarStatusExibidoNoModal();
 }
 function statusEfetivoDoFormulario(){
+  return statusEfetivo(obraVirtualDoFormulario());
+}
+function obraVirtualDoFormulario(){
   const elIni=document.getElementById('campo-modal-dataInicio');
   const elPrazo=document.getElementById('campo-modal-prazoDias');
   const elConcluida=document.getElementById('campo-modal-concluida');
-  const obraVirtual={
+  const elDataConclusao=document.getElementById('campo-modal-dataConclusao');
+  return{
     dataInicio:elIni?elIni.value:'',
     prazoDias:elPrazo&&elPrazo.value!==''?Number(elPrazo.value):null,
     pausas:pausasEmEdicao,
     concluida:elConcluida?elConcluida.checked:false,
+    dataConclusao:elDataConclusao?elDataConclusao.value:'',
     status:modalEditandoId?((obras.find(o=>o.id===modalEditandoId)||{}).status||''):'',
   };
-  return statusEfetivo(obraVirtual);
 }
 function atualizarStatusExibidoNoModal(){
+  const virtual=obraVirtualDoFormulario();
   const el=document.getElementById('campo-modal-status');
-  if(el)el.value=statusEfetivoDoFormulario();
+  if(el)el.value=statusEfetivo(virtual);
+  const info=document.getElementById('campo-modal-atraso-info');
+  if(info)info.textContent=textoAtraso(virtual);
 }
 function colecaoDe(entidade){return entidade==='cliente'?clientes:entidade==='obra'?obras:lancamentos;}
 function nomeColecaoDe(entidade){return entidade==='cliente'?'clientes':entidade==='obra'?'obras':'lancamentos';}
@@ -947,9 +988,15 @@ function abrirModal(entidade,id){
     const elIni=document.getElementById('campo-modal-dataInicio');
     const elPrazo=document.getElementById('campo-modal-prazoDias');
     const elConcluida=document.getElementById('campo-modal-concluida');
+    const elDataConclusao=document.getElementById('campo-modal-dataConclusao');
     if(elIni)elIni.addEventListener('input',atualizarStatusExibidoNoModal);
     if(elPrazo)elPrazo.addEventListener('input',atualizarStatusExibidoNoModal);
-    if(elConcluida)elConcluida.addEventListener('change',atualizarStatusExibidoNoModal);
+    if(elDataConclusao)elDataConclusao.addEventListener('input',atualizarStatusExibidoNoModal);
+    if(elConcluida)elConcluida.addEventListener('change',()=>{
+      if(elConcluida.checked&&elDataConclusao&&!elDataConclusao.value)elDataConclusao.value=new Date().toISOString().slice(0,10);
+      atualizarStatusExibidoNoModal();
+    });
+    atualizarStatusExibidoNoModal();
   }
   document.getElementById('overlay-registro').style.display='flex';
 }
@@ -1266,7 +1313,7 @@ function migrarDados(colunasAntigas,itensAntigos){
     if(!obra){
       const infoRecente=maisRecentePorCliente[nomeCliente];
       const statusAtual=(cStatus&&infoRecente)?infoRecente.item.fields[cStatus.name]:'';
-      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',prazoDias:null,pausas:[],valorNegociado:0,qtdLances:null,qtdBombeamentos:null,adutora:null,descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
+      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',prazoDias:null,pausas:[],concluida:false,dataConclusao:null,valorNegociado:0,qtdLances:null,qtdBombeamentos:null,adutora:null,descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
       obrasPorCliente[cliente.id]=obra;obrasArr.push(obra);
     }
     const tipoItem=cTipo?String(it.fields[cTipo.name]||'').toUpperCase().trim():'';

@@ -105,6 +105,15 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
   .toolbar-dados input[type=text]:focus{outline:2px solid var(--azul-claro);outline-offset:1px;}
   .toolbar-dados select{border:1px solid var(--borda);border-radius:4px;padding:6px 8px;font-size:.8rem;background:#fffdf9;color:var(--texto);}
   .pager{display:flex;align-items:center;gap:12px;margin-top:10px;font-size:.8rem;color:var(--texto-suave);flex-wrap:wrap;}
+  .agenda-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .agenda-cab{font-size:.66rem;text-transform:uppercase;color:var(--texto-suave);text-align:center;padding:4px 0;font-weight:700;letter-spacing:.3px;}
+  .agenda-dia{background:#fffdf9;border:1px solid var(--borda);border-radius:4px;min-height:88px;padding:4px;font-size:.7rem;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+  .agenda-dia.vazio{background:transparent;border:none;}
+  .agenda-dia.hoje{border:2px solid var(--ferrugem);}
+  .agenda-numero{font-weight:700;color:var(--texto-suave);font-size:.72rem;}
+  .agenda-chip{color:#fff;border-radius:3px;padding:2px 4px;font-size:.62rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;}
+  .agenda-mais{font-size:.6rem;color:var(--texto-suave);}
+  @media (max-width:700px){ .agenda-grid{grid-template-columns:repeat(7,minmax(30px,1fr));gap:2px;} .agenda-dia{min-height:50px;padding:2px;gap:1px;} .agenda-chip{height:6px;padding:0;font-size:0;border-radius:2px;} .agenda-mais{display:none;} }
   body:not(.is-admin) .somente-admin{display:none !important;}
   .ms-btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:4px;font-size:.75rem;padding:6px 12px;cursor:pointer;font-weight:600;}
   .ms-btn:hover{background:rgba(255,255,255,.28);}
@@ -141,6 +150,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <button data-tab="regional">Regional</button>
     <button data-tab="clientes">Clientes</button>
     <button data-tab="obras">Obras</button>
+    <button data-tab="agenda">Agenda</button>
     <button data-tab="lancamentos">Lançamentos</button>
     <button data-tab="parametros">⚙ Parâmetros</button>
   </nav>
@@ -197,11 +207,25 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <div class="card">
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Categoria</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
           <tbody id="tbody-obras"></tbody>
         </table>
       </div>
       <div class="pager"><span id="contagem-obras"></span></div>
+    </div>
+  </section>
+
+  <section class="pane" id="pane-agenda">
+    <h2 class="pane-title">Agenda</h2>
+    <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status.</p>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn ghost small" id="btn-agenda-ant" type="button">‹ Mês anterior</button>
+      <h3 id="titulo-agenda" style="margin:0;font-family:var(--fonte-titulo);color:var(--azul-escuro);min-width:160px;text-align:center;"></h3>
+      <button class="btn ghost small" id="btn-agenda-prox" type="button">Próximo mês ›</button>
+      <button class="btn ghost small" id="btn-agenda-hoje" type="button">Hoje</button>
+    </div>
+    <div class="card">
+      <div class="agenda-grid" id="grid-agenda"></div>
     </div>
   </section>
 
@@ -501,7 +525,7 @@ function renderCardPorObra(baseLancamentos){
   if(!obrasBase.length){card.style.display='none';return;}
   const linhas=obrasBase.map(o=>{
     const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
-    const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=somaPorTipo('NEGOCIADO',lancsObra);
+    const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);
     const c=clientePorId(o.clienteId);
     return {nome:(c?c.nome:'?')+' — '+o.nome,status:o.status||'—',custo,recebido,negociado,resultado:recebido-custo};
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
@@ -519,7 +543,8 @@ function renderCardPorObra(baseLancamentos){
 function renderPainel(){
   renderFiltrosTopo('painel');
   const base=lancamentosFiltradosGlobal();
-  const custo=somaPorTipo('SAIDA',base),negociado=somaPorTipo('NEGOCIADO',base),recebido=somaPorTipo('ENTRADA',base);
+  const custo=somaPorTipo('SAIDA',base),recebido=somaPorTipo('ENTRADA',base);
+  const negociado=obrasFiltradasPeloPainel().reduce((a,o)=>a+n(o.valorNegociado),0);
   const resultado=recebido-custo;
   document.getElementById('strip-painel').innerHTML=[
     tbox('Custo',brl(custo)),
@@ -539,6 +564,55 @@ function renderRegional(){
   renderGraficoResultadoCliente(base);
   renderCardStatus();
 }
+
+/* ============================ AGENDA ============================ */
+let agendaAno=new Date().getFullYear(),agendaMes=new Date().getMonth();
+const CORES_STATUS_PALETA=['#0a7517','#c1541c','#1f8c33','#a3312a','#cf9b3e','#5f6e62','#03590f'];
+function corParaStatus(status){
+  if(!status)return '#5f6e62';
+  let h=0;for(let i=0;i<status.length;i++)h=(h*31+status.charCodeAt(i))>>>0;
+  return CORES_STATUS_PALETA[h%CORES_STATUS_PALETA.length];
+}
+function obrasNoIntervalo(){
+  return obras.map(o=>{
+    if(!o.dataInicio)return null;
+    const inicio=new Date(o.dataInicio);
+    if(isNaN(inicio))return null;
+    const fim=o.prazoDias?new Date(inicio.getTime()+Number(o.prazoDias)*86400000):inicio;
+    return {obra:o,cliente:clientePorId(o.clienteId),inicio,fim};
+  }).filter(Boolean);
+}
+function renderAgenda(){
+  const nomesMes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  document.getElementById('titulo-agenda').textContent=nomesMes[agendaMes]+' de '+agendaAno;
+  const primeiroDiaSemana=new Date(agendaAno,agendaMes,1).getDay();
+  const diasNoMes=new Date(agendaAno,agendaMes+1,0).getDate();
+  const itensObra=obrasNoIntervalo();
+  const nomesDia=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  let html=nomesDia.map(d=>`<div class="agenda-cab">${d}</div>`).join('');
+  for(let i=0;i<primeiroDiaSemana;i++)html+='<div class="agenda-dia vazio"></div>';
+  const hojeStr=new Date().toDateString();
+  for(let dia=1;dia<=diasNoMes;dia++){
+    const dataAtual=new Date(agendaAno,agendaMes,dia);
+    const doDia=itensObra.filter(x=>{
+      const ini=new Date(x.inicio.getFullYear(),x.inicio.getMonth(),x.inicio.getDate());
+      const fim=new Date(x.fim.getFullYear(),x.fim.getMonth(),x.fim.getDate());
+      return dataAtual>=ini&&dataAtual<=fim;
+    });
+    const limite=4;
+    const chips=doDia.slice(0,limite).map(x=>{
+      const label=(x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome;
+      return `<div class="agenda-chip" style="background:${corParaStatus(x.obra.status)};" title="${escapeHtml(label+' · '+(x.obra.status||'sem status'))}">${escapeHtml(label)}</div>`;
+    }).join('');
+    const extra=doDia.length>limite?`<div class="agenda-mais">+${doDia.length-limite} mais</div>`:'';
+    const classeHoje=(hojeStr===dataAtual.toDateString())?' hoje':'';
+    html+=`<div class="agenda-dia${classeHoje}"><div class="agenda-numero">${dia}</div>${chips}${extra}</div>`;
+  }
+  document.getElementById('grid-agenda').innerHTML=html;
+}
+document.getElementById('btn-agenda-ant').addEventListener('click',()=>{agendaMes--;if(agendaMes<0){agendaMes=11;agendaAno--;}renderAgenda();});
+document.getElementById('btn-agenda-prox').addEventListener('click',()=>{agendaMes++;if(agendaMes>11){agendaMes=0;agendaAno++;}renderAgenda();});
+document.getElementById('btn-agenda-hoje').addEventListener('click',()=>{const h=new Date();agendaAno=h.getFullYear();agendaMes=h.getMonth();renderAgenda();});
 
 /* ============================ CONTROLE DE ACESSO (definido antes das telas que o usam) ============================ */
 function souAdmin(){const nivel=nivelAcesso();return nivel==='admin'||nivel==='local';}
@@ -567,8 +641,8 @@ function renderObras(){
   tbody.innerHTML=lista.length?lista.map(o=>{
     const c=clientePorId(o.clienteId);
     const qtdLanc=lancamentos.filter(l=>l.obraId===o.id).length;
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(o.status||'—')}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
-  }).join(''):`<tr><td colspan="${admin?6:5}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra cadastrada.</td></tr>`;
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(o.status||'—')}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
+  }).join(''):`<tr><td colspan="${admin?7:6}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra cadastrada.</td></tr>`;
   if(admin)tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
   document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)';
 }
@@ -595,7 +669,7 @@ function renderFiltrosLancamentos(){
   const opcoesObra=obras.map(o=>{const c=clientePorId(o.clienteId);return {id:o.id,label:(c?c.nome:'?')+' — '+o.nome};}).sort((a,b)=>a.label.localeCompare(b.label));
   wrap.innerHTML=
     `<select id="filtro-obra-lanc"><option value="">Obra: todas</option>${opcoesObra.map(o=>`<option value="${escapeHtml(o.id)}" ${o.id===filtroObraLanc?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`+
-    `<select id="filtro-tipo-lanc"><option value="">Tipo: todos</option>${['SAIDA','ENTRADA','NEGOCIADO'].map(t=>`<option value="${t}" ${t===filtroTipoLanc?'selected':''}>${t}</option>`).join('')}</select>`;
+    `<select id="filtro-tipo-lanc"><option value="">Tipo: todos</option>${['SAIDA','ENTRADA'].map(t=>`<option value="${t}" ${t===filtroTipoLanc?'selected':''}>${t}</option>`).join('')}</select>`;
   document.getElementById('filtro-obra-lanc').addEventListener('change',e=>{filtroObraLanc=e.target.value;paginaLanc=1;renderLancamentos();});
   document.getElementById('filtro-tipo-lanc').addEventListener('change',e=>{filtroTipoLanc=e.target.value;paginaLanc=1;renderLancamentos();});
 }
@@ -676,12 +750,17 @@ const ESQUEMAS={
     {chave:'status',label:'Status',tipo:'statusSelect'},
     {chave:'categoria',label:'Categoria',tipo:'text'},
     {chave:'dataInicio',label:'Data de Início',tipo:'date'},
+    {chave:'prazoDias',label:'Prazo Estimado (dias)',tipo:'number'},
+    {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number'},
+    {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
+    {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
+    {chave:'adutora',label:'Adutora (m)',tipo:'number'},
     {chave:'descricao',label:'Descrição',tipo:'textarea'},
   ]},
   lancamento:{titulo:'Lançamento',campos:[
     {chave:'obraId',label:'Obra',tipo:'obraSearchSelect',obrigatorio:true},
-    {chave:'tipo',label:'Tipo',tipo:'select',opcoes:['SAIDA','ENTRADA','NEGOCIADO'],obrigatorio:true},
-    {chave:'categoria',label:'Categoria',tipo:'categoriaSelect'},
+    {chave:'tipo',label:'Tipo',tipo:'select',opcoes:['SAIDA','ENTRADA'],obrigatorio:true},
+    {chave:'categoria',label:'Categoria',tipo:'categoriaSearchSelect'},
     {chave:'valor',label:'Valor (R$)',tipo:'number'},
     {chave:'quantidade',label:'Quantidade',tipo:'number'},
     {chave:'data',label:'Data',tipo:'date'},
@@ -717,6 +796,8 @@ function campoHtmlGenerico(campo,valorAtual){
     inputHtml=`<input type="text" id="${idc}" list="datalist-obras" value="${escapeHtml(atual?atual.label:'')}" placeholder="Digite para buscar a obra...">`+
       `<input type="hidden" id="${idc}__id" value="${escapeHtml(valorAtual||'')}">`+
       `<span class="nota">Busque por cliente ou nome da obra</span>`;
+  }else if(campo.tipo==='categoriaSearchSelect'){
+    inputHtml=`<input type="text" id="${idc}" list="datalist-categorias" value="${escapeHtml(valorAtual||'')}" placeholder="Digite para buscar a categoria...">`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
@@ -733,8 +814,10 @@ function abrirModal(entidade,id){
   document.getElementById('btn-excluir-registro').style.display=item?'':'none';
   document.getElementById('status-modal-registro').textContent='';
   const temBuscaObra=esquema.campos.some(c=>c.tipo==='obraSearchSelect');
+  const temBuscaCategoria=esquema.campos.some(c=>c.tipo==='categoriaSearchSelect');
   document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>campoHtmlGenerico(campo,item?item[campo.chave]:null)).join('')+
-    (temBuscaObra?`<datalist id="datalist-obras">${opcoesObrasOrdenadas().map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('')}</datalist>`:'');
+    (temBuscaObra?`<datalist id="datalist-obras">${opcoesObrasOrdenadas().map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('')}</datalist>`:'')+
+    (temBuscaCategoria?`<datalist id="datalist-categorias">${(listasConfig.categorias||[]).map(c=>`<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>`:'');
   esquema.campos.forEach(campo=>{
     if(campo.tipo!=='obraSearchSelect')return;
     const el=document.getElementById('campo-modal-'+campo.chave),hid=document.getElementById('campo-modal-'+campo.chave+'__id');
@@ -806,6 +889,7 @@ function renderAll(){
   renderRegional();
   if(document.getElementById('pane-clientes').classList.contains('active'))renderClientes();
   if(document.getElementById('pane-obras').classList.contains('active'))renderObras();
+  if(document.getElementById('pane-agenda').classList.contains('active'))renderAgenda();
   if(document.getElementById('pane-lancamentos').classList.contains('active')){renderFiltrosLancamentos();renderLancamentos();}
   if(document.getElementById('pane-parametros').classList.contains('active'))renderParametros();
 }
@@ -818,6 +902,7 @@ document.getElementById('tabs').addEventListener('click',e=>{
   if(btn.dataset.tab==='regional')renderRegional();
   if(btn.dataset.tab==='clientes')renderClientes();
   if(btn.dataset.tab==='obras')renderObras();
+  if(btn.dataset.tab==='agenda')renderAgenda();
   if(btn.dataset.tab==='lancamentos'){renderFiltrosLancamentos();renderLancamentos();}
   if(btn.dataset.tab==='parametros')renderParametros();
 });
@@ -1055,8 +1140,13 @@ function migrarDados(colunasAntigas,itensAntigos){
     if(!obra){
       const infoRecente=maisRecentePorCliente[nomeCliente];
       const statusAtual=(cStatus&&infoRecente)?infoRecente.item.fields[cStatus.name]:'';
-      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
+      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',prazoDias:null,valorNegociado:0,qtdLances:null,qtdBombeamentos:null,adutora:null,descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
       obrasPorCliente[cliente.id]=obra;obrasArr.push(obra);
+    }
+    const tipoItem=cTipo?String(it.fields[cTipo.name]||'').toUpperCase().trim():'';
+    if(tipoItem==='NEGOCIADO'){
+      obra.valorNegociado=n(obra.valorNegociado)+(cValor?n(it.fields[cValor.name]):0);
+      return; // valor negociado vira campo da Obra, não gera lançamento
     }
     lancamentosArr.push({
       id:gerarId('l'),obraId:obra.id,

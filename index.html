@@ -207,6 +207,18 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
       <button class="btn primary somente-admin" id="btn-nova-obra" type="button">+ Nova Obra</button>
     </div>
     <div class="card">
+      <h3>Filtros</h3>
+      <div class="toolbar-dados" style="margin-bottom:0;">
+        <input type="text" id="filtro-obras-cliente" list="datalist-obras-cliente" placeholder="Cliente: todos">
+        <input type="text" id="filtro-obras-nome" list="datalist-obras-nome" placeholder="Obra: todas">
+        <input type="text" id="filtro-obras-status" list="datalist-obras-status" placeholder="Status: todos">
+        <button class="btn ghost small" id="btn-limpar-filtros-obras" type="button">Limpar filtros</button>
+      </div>
+      <datalist id="datalist-obras-cliente"></datalist>
+      <datalist id="datalist-obras-nome"></datalist>
+      <datalist id="datalist-obras-status"></datalist>
+    </div>
+    <div class="card">
       <div class="tablewrap">
         <table class="dt">
           <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Atraso</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
@@ -770,20 +782,55 @@ function renderClientes(){
 document.getElementById('btn-novo-cliente').addEventListener('click',()=>abrirModal('cliente',null));
 
 /* ============================ OBRAS ============================ */
+let filtroObrasCliente='',filtroObrasNomeTexto='',filtroObrasId='',filtroObrasStatus='';
+function renderFiltrosObras(){
+  const optsCliente=opcoesClientesDistintos();
+  const optsObra=opcoesObrasOrdenadas();
+  const optsStatus=Object.keys(CORES_STATUS_FIXAS);
+  document.getElementById('datalist-obras-cliente').innerHTML=optsCliente.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+  document.getElementById('datalist-obras-nome').innerHTML=optsObra.map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('');
+  document.getElementById('datalist-obras-status').innerHTML=optsStatus.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+  const elCliente=document.getElementById('filtro-obras-cliente');
+  const elNome=document.getElementById('filtro-obras-nome');
+  const elStatus=document.getElementById('filtro-obras-status');
+  elCliente.value=filtroObrasCliente;
+  elNome.value=filtroObrasNomeTexto;
+  elStatus.value=filtroObrasStatus;
+  elCliente.oninput=()=>{
+    if(elCliente.value===''||optsCliente.includes(elCliente.value)){filtroObrasCliente=elCliente.value;renderObras();}
+  };
+  elNome.oninput=()=>{
+    filtroObrasNomeTexto=elNome.value;
+    if(elNome.value===''){filtroObrasId='';renderObras();return;}
+    const achado=optsObra.find(o=>o.label===elNome.value);
+    if(achado){filtroObrasId=achado.id;renderObras();}
+  };
+  elStatus.oninput=()=>{
+    if(elStatus.value===''||optsStatus.includes(elStatus.value)){filtroObrasStatus=elStatus.value;renderObras();}
+  };
+}
+document.getElementById('btn-limpar-filtros-obras').addEventListener('click',()=>{
+  filtroObrasCliente='';filtroObrasNomeTexto='';filtroObrasId='';filtroObrasStatus='';
+  renderFiltrosObras();renderObras();
+});
 function renderObras(){
   const admin=souAdmin();
   document.getElementById('btn-nova-obra').style.display=admin?'':'none';
   const tbody=document.getElementById('tbody-obras');
-  const lista=[...obras].sort((a,b)=>{const ca=clientePorId(a.clienteId),cb=clientePorId(b.clienteId);return (ca?ca.nome:'').localeCompare(cb?cb.nome:'');});
+  let lista=[...obras];
+  if(filtroObrasCliente)lista=lista.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroObrasCliente;});
+  if(filtroObrasId)lista=lista.filter(o=>o.id===filtroObrasId);
+  if(filtroObrasStatus)lista=lista.filter(o=>statusEfetivo(o)===filtroObrasStatus);
+  lista.sort((a,b)=>{const ca=clientePorId(a.clienteId),cb=clientePorId(b.clienteId);return (ca?ca.nome:'').localeCompare(cb?cb.nome:'');});
   tbody.innerHTML=lista.length?lista.map(o=>{
     const c=clientePorId(o.clienteId);
     const qtdLanc=lancamentos.filter(l=>l.obraId===o.id).length;
     const dAtraso=diasAtraso(o);
     const corAtraso=(dAtraso!==null&&dAtraso>0)?'color:var(--erro);font-weight:700;':'';
     return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
-  }).join(''):`<tr><td colspan="${admin?8:7}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra cadastrada.</td></tr>`;
+  }).join(''):`<tr><td colspan="${admin?8:7}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra encontrada.</td></tr>`;
   if(admin)tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
-  document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)';
+  document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)'+(lista.length!==obras.length?` (de ${int(obras.length)})`:'');
 }
 document.getElementById('btn-nova-obra').addEventListener('click',()=>abrirModal('obra',null));
 
@@ -1115,7 +1162,7 @@ function renderAll(){
   renderPainel();
   renderRegional();
   if(document.getElementById('pane-clientes').classList.contains('active'))renderClientes();
-  if(document.getElementById('pane-obras').classList.contains('active'))renderObras();
+  if(document.getElementById('pane-obras').classList.contains('active')){renderFiltrosObras();renderObras();}
   if(document.getElementById('pane-agenda').classList.contains('active'))renderAgenda();
   if(document.getElementById('pane-lancamentos').classList.contains('active')){renderFiltrosLancamentos();renderLancamentos();}
   if(document.getElementById('pane-parametros').classList.contains('active'))renderParametros();
@@ -1128,7 +1175,7 @@ document.getElementById('tabs').addEventListener('click',e=>{
   if(btn.dataset.tab==='painel')renderPainel();
   if(btn.dataset.tab==='regional')renderRegional();
   if(btn.dataset.tab==='clientes')renderClientes();
-  if(btn.dataset.tab==='obras')renderObras();
+  if(btn.dataset.tab==='obras'){renderFiltrosObras();renderObras();}
   if(btn.dataset.tab==='agenda')renderAgenda();
   if(btn.dataset.tab==='lancamentos'){renderFiltrosLancamentos();renderLancamentos();}
   if(btn.dataset.tab==='parametros')renderParametros();

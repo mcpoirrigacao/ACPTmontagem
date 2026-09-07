@@ -218,7 +218,7 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
 
   <section class="pane" id="pane-agenda">
     <h2 class="pane-title">Agenda</h2>
-    <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status.</p>
+    <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status. Períodos de pausa aparecem com textura listrada, e a previsão de conclusão se ajusta automaticamente pelo tempo pausado.</p>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn ghost small" id="btn-agenda-ant" type="button">‹ Mês anterior</button>
       <h3 id="titulo-agenda" style="margin:0;font-family:var(--fonte-titulo);color:var(--azul-escuro);min-width:160px;text-align:center;"></h3>
@@ -589,12 +589,35 @@ function corParaStatus(status){
   let h=0;for(let i=0;i<status.length;i++)h=(h*31+status.charCodeAt(i))>>>0;
   return CORES_STATUS_PALETA[h%CORES_STATUS_PALETA.length];
 }
+function dataPrevistaConclusao(obra){
+  if(!obra.dataInicio)return null;
+  const inicio=new Date(obra.dataInicio);
+  if(isNaN(inicio))return null;
+  let fim=obra.prazoDias?new Date(inicio.getTime()+Number(obra.prazoDias)*86400000):new Date(inicio);
+  (obra.pausas||[]).forEach(p=>{
+    if(p.inicio&&p.fim){
+      const pi=new Date(p.inicio),pf=new Date(p.fim);
+      if(!isNaN(pi)&&!isNaN(pf)&&pf>pi)fim=new Date(fim.getTime()+(pf.getTime()-pi.getTime()));
+    }
+  });
+  return fim;
+}
+function diaEmPausa(obra,dataAtual){
+  return (obra.pausas||[]).some(p=>{
+    if(!p.inicio)return false;
+    const pi=new Date(p.inicio);if(isNaN(pi))return false;
+    const pf=p.fim?new Date(p.fim):new Date();
+    const piDia=new Date(pi.getFullYear(),pi.getMonth(),pi.getDate());
+    const pfDia=new Date(pf.getFullYear(),pf.getMonth(),pf.getDate());
+    return dataAtual>=piDia&&dataAtual<=pfDia;
+  });
+}
 function obrasNoIntervalo(){
   return obras.map(o=>{
     if(!o.dataInicio)return null;
     const inicio=new Date(o.dataInicio);
     if(isNaN(inicio))return null;
-    const fim=o.prazoDias?new Date(inicio.getTime()+Number(o.prazoDias)*86400000):inicio;
+    const fim=dataPrevistaConclusao(o)||inicio;
     return {obra:o,cliente:clientePorId(o.clienteId),inicio,fim};
   }).filter(Boolean);
 }
@@ -618,7 +641,11 @@ function renderAgenda(){
     const limite=4;
     const chips=doDia.slice(0,limite).map(x=>{
       const label=(x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome;
-      return `<div class="agenda-chip" style="background:${corParaStatus(x.obra.status)};" title="${escapeHtml(label+' · '+(x.obra.status||'sem status'))}">${escapeHtml(label)}</div>`;
+      const pausadoHoje=diaEmPausa(x.obra,dataAtual);
+      const cor=corParaStatus(x.obra.status);
+      const estilo=pausadoHoje?`background:repeating-linear-gradient(45deg, ${cor}, ${cor} 4px, rgba(255,255,255,.55) 4px, rgba(255,255,255,.55) 8px);`:`background:${cor};`;
+      const nota=pausadoHoje?' · pausada neste período':'';
+      return `<div class="agenda-chip" style="${estilo}" title="${escapeHtml(label+' · '+(x.obra.status||'sem status')+nota)}">${escapeHtml(label)}</div>`;
     }).join('');
     const extra=doDia.length>limite?`<div class="agenda-mais">+${doDia.length-limite} mais</div>`:'';
     const classeHoje=(hojeStr===dataAtual.toDateString())?' hoje':'';
@@ -767,6 +794,7 @@ const ESQUEMAS={
     {chave:'categoria',label:'Categoria',tipo:'text'},
     {chave:'dataInicio',label:'Data de Início',tipo:'date'},
     {chave:'prazoDias',label:'Prazo Estimado (dias)',tipo:'number'},
+    {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor'},
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number'},
     {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
@@ -814,10 +842,33 @@ function campoHtmlGenerico(campo,valorAtual){
       `<span class="nota">Busque por cliente ou nome da obra</span>`;
   }else if(campo.tipo==='categoriaSearchSelect'){
     inputHtml=`<input type="text" id="${idc}" list="datalist-categorias" value="${escapeHtml(valorAtual||'')}" placeholder="Digite para buscar a categoria...">`;
+  }else if(campo.tipo==='pausasEditor'){
+    inputHtml=`<div id="${idc}__lista"></div>`+
+      `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center;">`+
+        `<input type="date" id="${idc}__inicio" title="Início da pausa">`+
+        `<span class="nota">até</span>`+
+        `<input type="date" id="${idc}__fim" title="Retomada — deixe em branco se ainda pausada">`+
+        `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar pausa</button>`+
+      `</div>`+
+      `<span class="nota">Cada pausa concluída empurra a data prevista de conclusão pelo tempo que durou.</span>`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
   return `<div class="field"><label>${escapeHtml(campo.label)}${campo.obrigatorio?' *':''}</label>${inputHtml}</div>`;
+}
+let pausasEmEdicao=[];
+function renderListaPausasEditor(){
+  const cont=document.getElementById('campo-modal-pausas__lista');
+  if(!cont)return;
+  if(!pausasEmEdicao.length){cont.innerHTML=`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhuma pausa registrada.</div>`;return;}
+  cont.innerHTML=pausasEmEdicao.map((p,i)=>{
+    const aberta=!p.fim;
+    const texto=aberta?`${fmtData(p.inicio)} → em andamento`:`${fmtData(p.inicio)} → ${fmtData(p.fim)}`;
+    const btnRetomar=aberta?`<button class="btn ghost small" data-retomar-pausa="${i}" type="button">Retomar hoje</button>`:'';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(texto)}</span>${btnRetomar}<button class="btn danger small" data-rem-pausa="${i}" type="button">×</button></div>`;
+  }).join('');
+  cont.querySelectorAll('[data-rem-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao.splice(+b.dataset.remPausa,1);renderListaPausasEditor();};});
+  cont.querySelectorAll('[data-retomar-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao[+b.dataset.retomarPausa].fim=new Date().toISOString().slice(0,10);renderListaPausasEditor();};});
 }
 function colecaoDe(entidade){return entidade==='cliente'?clientes:entidade==='obra'?obras:lancamentos;}
 function nomeColecaoDe(entidade){return entidade==='cliente'?'clientes':entidade==='obra'?'obras':'lancamentos';}
@@ -831,6 +882,7 @@ function abrirModal(entidade,id){
   document.getElementById('status-modal-registro').textContent='';
   const temBuscaObra=esquema.campos.some(c=>c.tipo==='obraSearchSelect');
   const temBuscaCategoria=esquema.campos.some(c=>c.tipo==='categoriaSearchSelect');
+  if(entidade==='obra')pausasEmEdicao=(item&&Array.isArray(item.pausas))?JSON.parse(JSON.stringify(item.pausas)):[];
   document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>campoHtmlGenerico(campo,item?item[campo.chave]:null)).join('')+
     (temBuscaObra?`<datalist id="datalist-obras">${opcoesObrasOrdenadas().map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('')}</datalist>`:'')+
     (temBuscaCategoria?`<datalist id="datalist-categorias">${(listasConfig.categorias||[]).map(c=>`<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>`:'');
@@ -843,6 +895,19 @@ function abrirModal(entidade,id){
       hid.value=achado?achado.id:'';
     });
   });
+  if(entidade==='obra'){
+    renderListaPausasEditor();
+    const btnAdd=document.getElementById('campo-modal-pausas__add');
+    if(btnAdd)btnAdd.addEventListener('click',()=>{
+      const ini=document.getElementById('campo-modal-pausas__inicio').value;
+      const fim=document.getElementById('campo-modal-pausas__fim').value;
+      if(!ini){toast('Informe a data de início da pausa.');return;}
+      pausasEmEdicao.push({inicio:ini,fim:fim||null});
+      document.getElementById('campo-modal-pausas__inicio').value='';
+      document.getElementById('campo-modal-pausas__fim').value='';
+      renderListaPausasEditor();
+    });
+  }
   document.getElementById('overlay-registro').style.display='flex';
 }
 function fecharModalRegistro(){document.getElementById('overlay-registro').style.display='none';modalEntidade=null;modalEditandoId=null;}
@@ -856,6 +921,7 @@ function coletarCampos(entidade){
       obj[campo.chave]=hid?hid.value:'';
       return;
     }
+    if(campo.tipo==='pausasEditor'){obj[campo.chave]=pausasEmEdicao;return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
     obj[campo.chave]=campo.tipo==='number'?(el.value===''?null:Number(el.value)):el.value;
@@ -1156,7 +1222,7 @@ function migrarDados(colunasAntigas,itensAntigos){
     if(!obra){
       const infoRecente=maisRecentePorCliente[nomeCliente];
       const statusAtual=(cStatus&&infoRecente)?infoRecente.item.fields[cStatus.name]:'';
-      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',prazoDias:null,valorNegociado:0,qtdLances:null,qtdBombeamentos:null,adutora:null,descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
+      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',prazoDias:null,pausas:[],valorNegociado:0,qtdLances:null,qtdBombeamentos:null,adutora:null,descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
       obrasPorCliente[cliente.id]=obra;obrasArr.push(obra);
     }
     const tipoItem=cTipo?String(it.fields[cTipo.name]||'').toUpperCase().trim():'';

@@ -15,6 +15,11 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
   s.onload=()=>res();s.onerror=()=>{const s2=document.createElement('script');
   s2.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js';s2.onload=()=>res();s2.onerror=()=>rej(new Error('ChartJS'));document.head.appendChild(s2);};
   document.head.appendChild(s);});}
+function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();return;}
+  const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  s.onload=()=>res();s.onerror=()=>{const s2=document.createElement('script');
+  s2.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s2.onload=()=>res();s2.onerror=()=>rej(new Error('XLSX'));document.head.appendChild(s2);};
+  document.head.appendChild(s);});}
 </script>
 <style>
 :root{
@@ -205,6 +210,8 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <p class="pane-desc">Obras por cliente — o Status é calculado automaticamente pela Data de Início, Prazo e Pausas (fica "Andamento Atrasada" se passar do prazo, e "Concluída" quando você marcar o checkbox). <span class="somente-admin">Como admin, use "+ Nova Obra" ou "editar" em qualquer linha.</span></p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
       <button class="btn primary somente-admin" id="btn-nova-obra" type="button">+ Nova Obra</button>
+      <button class="btn ghost somente-admin" id="btn-importar-orcamento" type="button">Importar de Orçamento</button>
+      <button class="btn ghost somente-admin" id="btn-premiacao-mes" type="button">Premiação do Mês</button>
     </div>
     <div class="card">
       <h3>Filtros</h3>
@@ -314,6 +321,28 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
       </div>
     </div>
     <div class="card somente-admin">
+      <h3>Técnicos <span class="h3-side">montador / auxiliar</span></h3>
+      <div style="display:flex;gap:10px;margin-bottom:10px;">
+        <button class="btn primary small" id="btn-novo-tecnico" type="button">+ Novo Técnico</button>
+      </div>
+      <div class="tablewrap">
+        <table class="dt">
+          <thead><tr><th>Nome</th><th>Função</th><th>Contato</th><th>CPF</th><th>Ações</th></tr></thead>
+          <tbody id="tbody-tecnicos"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card somente-admin">
+      <h3>Tarefas de Montagem (TMO) <span class="h3-side">horas por unidade</span></h3>
+      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Usado para calcular o TMO total e a premiação de Montador/Auxiliar quando uma Obra é importada de um orçamento. Ajuste as horas se precisar — o resto (grupo, tipo) é fixo.</p>
+      <div class="tablewrap">
+        <table class="dt">
+          <thead><tr><th>Código</th><th>Grupo</th><th>Descrição</th><th>Tipo</th><th class="r">Horas (TMO)</th></tr></thead>
+          <tbody id="tbody-tarefas-tmo"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card somente-admin">
       <h3>Usuários &amp; Acesso <span class="h3-side">login Microsoft</span></h3>
       <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--texto-suave);font-weight:700;margin:12px 0 6px;">Administradores</div>
       <div id="lista-admins"></div>
@@ -357,6 +386,38 @@ function loadChartJs(){return new Promise((res,rej)=>{if(window.Chart){res();ret
     <div id="lista-dia-agenda"></div>
   </div>
 </div>
+<div class="overlay" id="overlay-importar-orcamento">
+  <div class="box" style="max-width:640px;width:96%;text-align:left;max-height:84vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;">
+      <h2 style="margin:0;">Importar de Orçamento</h2>
+      <button class="btn ghost small" id="btn-fechar-importar-orcamento" type="button">✕ Fechar</button>
+    </div>
+    <input type="text" id="inp-busca-orcamento" placeholder="Buscar por cliente ou obra..." style="width:100%;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.86rem;margin-bottom:10px;">
+    <div id="status-busca-orcamento" style="font-size:.78rem;color:var(--texto-suave);margin-bottom:10px;"></div>
+    <div id="lista-resultados-orcamento"></div>
+    <div id="preview-orcamento" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--areia-escura);"></div>
+  </div>
+</div>
+<div class="overlay" id="overlay-premiacao-mes">
+  <div class="box" style="max-width:760px;width:96%;text-align:left;max-height:86vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;">
+      <h2 style="margin:0;">Premiação por Técnico</h2>
+      <button class="btn ghost small" id="btn-fechar-premiacao-mes" type="button">✕ Fechar</button>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+      <label style="font-size:.8rem;color:var(--texto-suave);display:flex;align-items:center;gap:6px;">Competência: <input type="month" id="inp-mes-premiacao"></label>
+      <button class="btn primary small" id="btn-exportar-excel-premiacao" type="button">⬇ Exportar Excel</button>
+    </div>
+    <div id="resumo-premiacao-mes" style="margin-bottom:14px;"></div>
+    <div class="tablewrap">
+      <table class="dt">
+        <thead><tr><th>Técnico</th><th>Função</th><th>Obra</th><th>Cliente</th><th class="r">Valor</th><th>Observação</th></tr></thead>
+        <tbody id="tbody-premiacao-mes"></tbody>
+      </table>
+    </div>
+    <p class="nota" style="margin-top:10px;">Se um pagamento tiver mais de um técnico marcado, o valor conta inteiro para cada um (não é dividido) — reflete exatamente o que foi registrado na Obra.</p>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -373,11 +434,79 @@ function gerarId(prefixo){return prefixo+'_'+Date.now().toString(36)+Math.random
 
 /* ============================ ESTADO (cache local) ============================ */
 const STORE_KEY='maqcampo-mcpo-v3';
-let clientes=[],obras=[],lancamentos=[];
+let clientes=[],obras=[],lancamentos=[],tecnicos=[];
 let ultimaSync=null,ultimoErro=null;
 function loadCache(){try{const raw=localStorage.getItem(STORE_KEY);if(raw){const o=JSON.parse(raw);if(o)return o;}}catch(e){}return null;}
-function saveCache(){try{localStorage.setItem(STORE_KEY,JSON.stringify({clientes,obras,lancamentos,ultimaSync}));}catch(e){}}
-(function initCache(){const c=loadCache();if(c){clientes=c.clientes||[];obras=c.obras||[];lancamentos=c.lancamentos||[];ultimaSync=c.ultimaSync||null;}})();
+function saveCache(){try{localStorage.setItem(STORE_KEY,JSON.stringify({clientes,obras,lancamentos,tecnicos,ultimaSync}));}catch(e){}}
+(function initCache(){const c=loadCache();if(c){clientes=c.clientes||[];obras=c.obras||[];lancamentos=c.lancamentos||[];tecnicos=c.tecnicos||[];ultimaSync=c.ultimaSync||null;}})();
+
+/* ============================ TAREFAS DE MONTAGEM (TMO) — valores extraídos do app de orçamentação ============================ */
+const TASKS_TMO_PADRAO=[
+  {id:'ELET-018',grupo:'AD',desc:'Adicional. Ligação elétrica (fora do projeto)',horas:1,tipo:'pct'},
+  {id:'ELET-021',grupo:'ADUTORA',desc:'Montagem ligação elétrica de válvula ON/OFF',horas:4,tipo:'pct'},
+  {id:'MONT-002',grupo:'ADUTORA (TUBULAÇÃO)',desc:'Montagem tubulação até DN350mm (0 a 350mm)',horas:1,tipo:'fix',unidade:'metros'},
+  {id:'MONT-003',grupo:'ADUTORA (TUBULAÇÃO)',desc:'Montagem tubulação até DN450mm (355 a 450mm)',horas:1.5,tipo:'fix',unidade:'metros'},
+  {id:'MONT-004',grupo:'ADUTORA (TUBULAÇÃO)',desc:'Montagem tubulação até DN600mm (450 a 600mm)',horas:2,tipo:'fix',unidade:'metros'},
+  {id:'ELET-004',grupo:'BARREIRA',desc:'Montagem autoreversão parada x barreira (por pivô)',horas:6,tipo:'pct'},
+  {id:'ELET-010',grupo:'CENTRAL',desc:'Montagem central de comunicação',horas:1.5,tipo:'pct'},
+  {id:'ELET-011',grupo:'CENTRAL',desc:'Montagem repetidora com energia 120/220V',horas:1.5,tipo:'pct'},
+  {id:'ELET-012',grupo:'CENTRAL',desc:'Montagem repetidora com placa solar',horas:1.5,tipo:'pct'},
+  {id:'ELET-022',grupo:'CENTRAL',desc:'Montagem ligação SPOTI',horas:1,tipo:'pct'},
+  {id:'ELET-023',grupo:'CENTRAL',desc:'Montagem ligação IRRIPUMP',horas:2,tipo:'pct'},
+  {id:'ELET-003',grupo:'CONJUNTO DE BOMBEAMENTO',desc:'Ligação elét. motor e quadro (por motobomba)',horas:6,tipo:'pct'},
+  {id:'ELET-025',grupo:'CONJUNTO DE BOMBEAMENTO',desc:'Ligação SAFE BOMB (antifurto)',horas:5,tipo:'pct'},
+  {id:'MONT-005',grupo:'CONJUNTO DE BOMBEAMENTO',desc:'Conj. de bombeamento com flutuante (fibra pronta)',horas:1.5,tipo:'pct'},
+  {id:'MONT-008',grupo:'CONJUNTO DE BOMBEAMENTO',desc:'Conj. de motobombas na casa de bombeamento (por motobomba)',horas:14,tipo:'pct'},
+  {id:'MONT-006',grupo:'CONJUNTO DE BOMBEAMENTO',desc:'Conj. de bombeamento com balsa (metal, precisa montagem)',horas:8,tipo:'pct'},
+  {id:'ELET-002',grupo:'LANCES',desc:'Ligação elét. por torre de sustentação (caixinha elétrica)',horas:1,tipo:'pct'},
+  {id:'ELET-024',grupo:'LANCES',desc:'Ligação SAFE por pivô (antifurto)',horas:3,tipo:'pct'},
+  {id:'MONT-001',grupo:'LANCES',desc:'Montagem torre + balanço (estrutura física)',horas:6.25,tipo:'pct'},
+  {id:'ELET-020',grupo:'LANCES',desc:'Ligação elétrica de trafo booster (pivôs acima de 14 lances)',horas:3,tipo:'pct'},
+  {id:'MONT-010',grupo:'PEAD',desc:'Solda de PEAD (quantidade de soldas)',horas:1,tipo:'pct'},
+  {id:'ELET-000',grupo:'TORRE CENTRAL',desc:'Ligação painel e parametrização (por pivô)',horas:1,tipo:'pct'},
+  {id:'ELET-001',grupo:'TORRE CENTRAL',desc:'Ligação painel e anel coletor (por pivô)',horas:3,tipo:'pct'},
+  {id:'ELET-008',grupo:'TORRE CENTRAL',desc:'GPS GNSS RTK e IRRIMESH (por pivô)',horas:4,tipo:'pct'},
+  {id:'ELET-013',grupo:'TORRE CENTRAL',desc:'Sensor de chuva (por pivô)',horas:0.5,tipo:'pct'},
+];
+const SOLDA_PEAD_ID='MONT-010';
+let tarefasTmo=TASKS_TMO_PADRAO.map(t=>Object.assign({},t));
+/* Calcula TMO total e premiação (Montador/Auxiliar) de uma obra, a partir das tarefas e preços
+   importados do orçamento no momento da criação — fórmula idêntica ao app de orçamentação. */
+function calcularPremiacaoDados(tarefas,precosImportados){
+  if(!tarefas||!precosImportados)return {tmoTotal:0,laborMont:0,laborAux:0,premiacaoTotal:0};
+  const horaEncargo=n(precosImportados.horaEncargo);
+  const pctMontador=n(precosImportados.pctMontador);
+  const pctAuxiliar=n(precosImportados.pctAuxiliar);
+  const maquinaPead=!!precosImportados.maquinaPead;
+  let tmoPct=0,laborMont=0,laborAux=0,adutoraMetros=0;
+  tarefasTmo.forEach(t=>{
+    const qtd=n(tarefas[t.id]);
+    if(!qtd)return;
+    let horasTotal,vMont,vAux;
+    if(t.tipo==='fix'){
+      let vu=0;
+      if(t.id==='MONT-002')vu=n(precosImportados.tubDN350);
+      else if(t.id==='MONT-003')vu=n(precosImportados.tubDN450);
+      else if(t.id==='MONT-004')vu=n(precosImportados.tubDN600);
+      horasTotal=t.horas*qtd;vMont=qtd*vu;vAux=qtd*vu;
+      adutoraMetros+=qtd;
+    }else if(t.id===SOLDA_PEAD_ID){
+      horasTotal=t.horas*qtd;
+      if(maquinaPead){vMont=horasTotal*horaEncargo*(pctMontador/100);vAux=horasTotal*horaEncargo*(pctAuxiliar/100);tmoPct+=horasTotal;}
+      else{vMont=0;vAux=0;}
+    }else{
+      horasTotal=t.horas*qtd;
+      vMont=horasTotal*horaEncargo*(pctMontador/100);
+      vAux=horasTotal*horaEncargo*(pctAuxiliar/100);
+      tmoPct+=horasTotal;
+    }
+    laborMont+=vMont;laborAux+=vAux;
+  });
+  let adutoraHorasEspecial=0;
+  if(adutoraMetros>0&&adutoraMetros<499)adutoraHorasEspecial=8;
+  else if(adutoraMetros>=499)adutoraHorasEspecial=(adutoraMetros/500)*10;
+  return {tmoTotal:tmoPct+adutoraHorasEspecial,laborMont,laborAux,premiacaoTotal:laborMont+laborAux};
+}
 
 /* ============================ JOINS / CÁLCULOS ============================ */
 function obraPorId(id){return obras.find(o=>o.id===id);}
@@ -944,7 +1073,14 @@ const ESQUEMAS={
     {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
     {chave:'adutora',label:'Adutora (m)',tipo:'number'},
+    {chave:'premiacao',label:'Premiação / Pagamento aos Técnicos',tipo:'premiacaoEditor'},
     {chave:'descricao',label:'Descrição',tipo:'textarea'},
+  ]},
+  tecnico:{titulo:'Técnico',campos:[
+    {chave:'nome',label:'Nome',tipo:'text',obrigatorio:true},
+    {chave:'funcao',label:'Função',tipo:'select',opcoes:['Montador','Auxiliar'],obrigatorio:true},
+    {chave:'contato',label:'Contato',tipo:'text'},
+    {chave:'cpf',label:'CPF',tipo:'text'},
   ]},
   lancamento:{titulo:'Lançamento',campos:[
     {chave:'obraId',label:'Obra',tipo:'obraSearchSelect',obrigatorio:true},
@@ -999,12 +1135,54 @@ function campoHtmlGenerico(campo,valorAtual){
         `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar pausa</button>`+
       `</div>`+
       `<span class="nota">Cada pausa concluída empurra a data prevista de conclusão pelo tempo que durou.</span>`;
+  }else if(campo.tipo==='premiacaoEditor'){
+    inputHtml=`<div id="${idc}__resumo" style="font-size:.82rem;line-height:1.7;margin-bottom:10px;"></div>`+
+      `<div id="${idc}__lista"></div>`+
+      `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-end;">`+
+        `<div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Competência</label><input type="month" id="${idc}__competencia"></div>`+
+        `<div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Valor (R$)</label><input type="number" step="any" id="${idc}__valor" style="width:120px;"></div>`+
+        `<div style="flex:1;min-width:180px;"><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Técnico(s)</label><div id="${idc}__tecnicos" style="display:flex;gap:8px;flex-wrap:wrap;font-size:.8rem;"></div></div>`+
+        `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar Pagamento</button>`+
+      `</div>`+
+      `<input type="text" id="${idc}__obs" placeholder="Observação (opcional)" style="width:100%;margin-top:6px;">`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
   return `<div class="field"><label>${escapeHtml(campo.label)}${campo.obrigatorio?' *':''}</label>${inputHtml}</div>`;
 }
 let pausasEmEdicao=[];
+let pagamentosEmEdicao=[];
+let seedAtualObra=null;
+function renderPremiacaoEditor(){
+  const resumo=document.getElementById('campo-modal-premiacao__resumo');
+  if(!resumo)return;
+  const item=modalEditandoId?obras.find(o=>o.id===modalEditandoId):null;
+  const tarefas=(item&&item.tarefas)||(seedAtualObra&&seedAtualObra.tarefas)||null;
+  const precosImportados=(item&&item.precosImportados)||(seedAtualObra&&seedAtualObra.precosImportados)||null;
+  const calc=calcularPremiacaoDados(tarefas,precosImportados);
+  const totalPago=pagamentosEmEdicao.reduce((a,p)=>a+n(p.valor),0);
+  const saldo=calc.premiacaoTotal-totalPago;
+  if(!tarefas){
+    resumo.innerHTML=`<span style="color:var(--texto-suave);">Esta obra não tem tarefas de montagem vinculadas (só vem de obras importadas de um orçamento). Ainda é possível registrar pagamentos manualmente.</span>`;
+  }else{
+    resumo.innerHTML=`<b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h<br>`+
+      `<b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}<br>`+
+      `<b>Premiação Total:</b> ${brl(calc.premiacaoTotal)}<br>`+
+      `<b>Já pago:</b> ${brl(totalPago)} · <b>Saldo:</b> <span style="font-weight:700;color:${saldo<0?'var(--erro)':'inherit'};">${brl(saldo)}</span>`;
+  }
+  const tecCont=document.getElementById('campo-modal-premiacao__tecnicos');
+  if(tecCont){
+    tecCont.innerHTML=tecnicos.length?tecnicos.map(t=>`<label style="display:flex;align-items:center;gap:4px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico>${escapeHtml(t.nome)} (${escapeHtml(t.funcao)})</label>`).join(''):'<span class="nota">Nenhum técnico cadastrado — cadastre em Parâmetros.</span>';
+  }
+  const lista=document.getElementById('campo-modal-premiacao__lista');
+  if(lista){
+    lista.innerHTML=pagamentosEmEdicao.length?pagamentosEmEdicao.map((p,i)=>{
+      const nomes=(p.tecnicoIds||[]).map(id=>{const t=tecnicos.find(x=>x.id===id);return t?t.nome:'?';}).join(', ');
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(p.competencia||'—')} · ${brl(n(p.valor))} · ${escapeHtml(nomes||'—')}${p.observacao?' · '+escapeHtml(p.observacao):''}</span><button class="btn danger small" data-rem-pagamento="${i}" type="button">×</button></div>`;
+    }).join(''):`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhum pagamento registrado.</div>`;
+    lista.querySelectorAll('[data-rem-pagamento]').forEach(b=>{b.onclick=()=>{pagamentosEmEdicao.splice(+b.dataset.remPagamento,1);renderPremiacaoEditor();};});
+  }
+}
 function renderListaPausasEditor(){
   const cont=document.getElementById('campo-modal-pausas__lista');
   if(!cont)return;
@@ -1045,22 +1223,27 @@ function atualizarStatusExibidoNoModal(){
   const info=document.getElementById('campo-modal-atraso-info');
   if(info)info.textContent=textoAtraso(virtual);
 }
-function colecaoDe(entidade){return entidade==='cliente'?clientes:entidade==='obra'?obras:lancamentos;}
-function nomeColecaoDe(entidade){return entidade==='cliente'?'clientes':entidade==='obra'?'obras':'lancamentos';}
-function abrirModal(entidade,id){
+function colecaoDe(entidade){return entidade==='cliente'?clientes:entidade==='obra'?obras:entidade==='tecnico'?tecnicos:lancamentos;}
+function nomeColecaoDe(entidade){return entidade==='cliente'?'clientes':entidade==='obra'?'obras':entidade==='tecnico'?'tecnicos':'lancamentos';}
+function abrirModal(entidade,id,seed){
   if(!souAdmin()){toast('Somente administradores podem criar ou editar registros.');return;}
   modalEntidade=entidade;modalEditandoId=id;
   const esquema=ESQUEMAS[entidade];
-  const item=id?colecaoDe(entidade).find(x=>x.id===id):null;
-  document.getElementById('titulo-modal-registro').textContent=(item?'Editar ':'Novo(a) ')+esquema.titulo;
-  document.getElementById('btn-excluir-registro').style.display=item?'':'none';
+  const itemExistente=id?colecaoDe(entidade).find(x=>x.id===id):null;
+  const valoresIniciais=itemExistente||seed||null;
+  seedAtualObra=(entidade==='obra'&&!itemExistente&&seed)?seed:null;
+  document.getElementById('titulo-modal-registro').textContent=(itemExistente?'Editar ':'Novo(a) ')+esquema.titulo;
+  document.getElementById('btn-excluir-registro').style.display=itemExistente?'':'none';
   document.getElementById('status-modal-registro').textContent='';
   const temBuscaObra=esquema.campos.some(c=>c.tipo==='obraSearchSelect');
   const temBuscaCategoria=esquema.campos.some(c=>c.tipo==='categoriaSearchSelect');
-  if(entidade==='obra')pausasEmEdicao=(item&&Array.isArray(item.pausas))?JSON.parse(JSON.stringify(item.pausas)):[];
+  if(entidade==='obra'){
+    pausasEmEdicao=(itemExistente&&Array.isArray(itemExistente.pausas))?JSON.parse(JSON.stringify(itemExistente.pausas)):[];
+    pagamentosEmEdicao=(itemExistente&&Array.isArray(itemExistente.pagamentosPremiacao))?JSON.parse(JSON.stringify(itemExistente.pagamentosPremiacao)):[];
+  }
   document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>{
-    if(campo.tipo==='statusComputado')return campoHtmlGenerico(campo,statusEfetivo(item||{dataInicio:'',prazoDias:null,pausas:[],concluida:false,status:''}));
-    return campoHtmlGenerico(campo,item?item[campo.chave]:null);
+    if(campo.tipo==='statusComputado')return campoHtmlGenerico(campo,statusEfetivo(valoresIniciais||{dataInicio:'',prazoDias:null,pausas:[],concluida:false,status:''}));
+    return campoHtmlGenerico(campo,valoresIniciais?valoresIniciais[campo.chave]:null);
   }).join('')+
     (temBuscaObra?`<datalist id="datalist-obras">${opcoesObrasOrdenadas().map(o=>`<option value="${escapeHtml(o.label)}"></option>`).join('')}</datalist>`:'')+
     (temBuscaCategoria?`<datalist id="datalist-categorias">${(listasConfig.categorias||[]).map(c=>`<option value="${escapeHtml(c)}"></option>`).join('')}</datalist>`:'');
@@ -1097,10 +1280,25 @@ function abrirModal(entidade,id){
       atualizarStatusExibidoNoModal();
     });
     atualizarStatusExibidoNoModal();
+    renderPremiacaoEditor();
+    const btnAddPag=document.getElementById('campo-modal-premiacao__add');
+    if(btnAddPag)btnAddPag.addEventListener('click',()=>{
+      const competencia=document.getElementById('campo-modal-premiacao__competencia').value;
+      const valor=document.getElementById('campo-modal-premiacao__valor').value;
+      const obs=document.getElementById('campo-modal-premiacao__obs').value;
+      const tecnicoIds=Array.from(document.querySelectorAll('#campo-modal-premiacao__tecnicos [data-check-tecnico]:checked')).map(el=>el.value);
+      if(!valor||Number(valor)<=0){toast('Informe um valor de pagamento maior que zero.');return;}
+      if(!tecnicoIds.length){toast('Selecione ao menos um técnico.');return;}
+      pagamentosEmEdicao.push({id:gerarId('pg'),competencia,valor:Number(valor),tecnicoIds,observacao:obs});
+      document.getElementById('campo-modal-premiacao__competencia').value='';
+      document.getElementById('campo-modal-premiacao__valor').value='';
+      document.getElementById('campo-modal-premiacao__obs').value='';
+      renderPremiacaoEditor();
+    });
   }
   document.getElementById('overlay-registro').style.display='flex';
 }
-function fecharModalRegistro(){document.getElementById('overlay-registro').style.display='none';modalEntidade=null;modalEditandoId=null;}
+function fecharModalRegistro(){document.getElementById('overlay-registro').style.display='none';modalEntidade=null;modalEditandoId=null;seedAtualObra=null;}
 document.getElementById('btn-fechar-modal-registro').addEventListener('click',fecharModalRegistro);
 function coletarCampos(entidade){
   const esquema=ESQUEMAS[entidade];
@@ -1112,6 +1310,7 @@ function coletarCampos(entidade){
       return;
     }
     if(campo.tipo==='pausasEditor'){obj[campo.chave]=pausasEmEdicao;return;}
+    if(campo.tipo==='premiacaoEditor'){obj[campo.chave]=pagamentosEmEdicao;return;}
     if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
@@ -1129,7 +1328,12 @@ document.getElementById('btn-salvar-registro').addEventListener('click',async()=
   statusEl.textContent='⏳ salvando…';
   const colecao=colecaoDe(modalEntidade);
   if(!modalEditandoId){
-    colecao.push(Object.assign({id:gerarId(modalEntidade[0])},campos,{criadoEm:new Date().toISOString()}));
+    const novo=Object.assign({id:gerarId(modalEntidade[0])},campos,{criadoEm:new Date().toISOString()});
+    if(modalEntidade==='obra'&&seedAtualObra){
+      if(seedAtualObra.tarefas)novo.tarefas=seedAtualObra.tarefas;
+      if(seedAtualObra.precosImportados)novo.precosImportados=seedAtualObra.precosImportados;
+    }
+    colecao.push(novo);
   }else{
     const item=colecao.find(x=>x.id===modalEditandoId);
     if(item)Object.assign(item,campos);
@@ -1187,10 +1391,33 @@ function renderParametros(){
     `Site: <b>${escapeHtml(SP_HOSTNAME+SP_SITE_PATH)}</b><br>`+
     `Pasta: <b>${escapeHtml(SP_PASTA)}</b><br>`+
     `Última sincronização: <b>${ultimaSync?new Date(ultimaSync).toLocaleString('pt-BR'):'—'}</b><br>`+
-    `Clientes: <b>${clientes.length}</b> · Obras: <b>${obras.length}</b> · Lançamentos: <b>${lancamentos.length}</b>`+
+    `Clientes: <b>${clientes.length}</b> · Obras: <b>${obras.length}</b> · Lançamentos: <b>${lancamentos.length}</b> · Técnicos: <b>${tecnicos.length}</b>`+
     (ultimoErro?`<br><span style="color:var(--erro);">⚠ Último erro: ${escapeHtml(ultimoErro)}</span>`:'');
   renderUsuarios();
   renderListasConfig();
+  renderTecnicos();
+  renderTarefasTmo();
+}
+function renderTecnicos(){
+  const tbody=document.getElementById('tbody-tecnicos');
+  if(!tbody)return;
+  const lista=[...tecnicos].sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  tbody.innerHTML=lista.length?lista.map(t=>`<tr><td>${escapeHtml(t.nome)}</td><td>${escapeHtml(t.funcao||'—')}</td><td>${escapeHtml(t.contato||'—')}</td><td>${escapeHtml(t.cpf||'—')}</td><td><button class="btn ghost small" data-editar-tecnico="${escapeHtml(t.id)}" type="button">editar</button></td></tr>`).join(''):`<tr><td colspan="5" style="padding:14px;color:var(--texto-suave);">Nenhum técnico cadastrado.</td></tr>`;
+  tbody.querySelectorAll('[data-editar-tecnico]').forEach(b=>b.addEventListener('click',()=>abrirModal('tecnico',b.dataset.editarTecnico)));
+}
+document.getElementById('btn-novo-tecnico').addEventListener('click',()=>abrirModal('tecnico',null));
+function renderTarefasTmo(){
+  const tbody=document.getElementById('tbody-tarefas-tmo');
+  if(!tbody)return;
+  tbody.innerHTML=tarefasTmo.map((t,i)=>`<tr><td>${escapeHtml(t.id)}</td><td>${escapeHtml(t.grupo)}</td><td>${escapeHtml(t.desc)}</td><td>${t.tipo==='fix'?'Fixo (R$/'+escapeHtml(t.unidade||'un')+')':'% hora'}</td><td class="num"><input type="number" step="any" data-idx-tarefa="${i}" value="${t.horas}" style="width:80px;text-align:right;"></td></tr>`).join('');
+  tbody.querySelectorAll('[data-idx-tarefa]').forEach(el=>{
+    el.addEventListener('change',async()=>{
+      const i=+el.dataset.idxTarefa;
+      tarefasTmo[i].horas=Number(el.value)||0;
+      const ok=await salvarTarefasTmo();
+      toast(ok?'TMO atualizado.':'Não foi possível salvar.');
+    });
+  });
 }
 
 /* ==================== MICROSOFT GRAPH / SHAREPOINT (armazenamento em JSON) ==================== */
@@ -1201,21 +1428,228 @@ const SP_HOSTNAME='maqcampoirrigacao.sharepoint.com';
 const SP_SITE_PATH='/sites/MCPOIRRIGACAO';
 const SP_BIBLIOTECA='Documentos Compartilhados';
 const SP_PASTA='Execução de Montagem';
+const PASTA_ORCAMENTOS='/Documentos Compartilhados/Orçamentos Montagem/Historico_montagem';
 const ACESSO_FILE='mcpo_acesso.json';
 const LISTAS_FILE='mcpo_listas.json';
 const CLIENTES_FILE='mcpo_clientes.json';
 const OBRAS_FILE='mcpo_obras.json';
 const LANCAMENTOS_FILE='mcpo_lancamentos.json';
+const TECNICOS_FILE='mcpo_tecnicos.json';
+const TAREFAS_TMO_FILE='mcpo_tarefas_tmo.json';
 
 let msalInstance=null,msAccount=null,msalReady=false;
 let acesso={emailsAutorizados:[],emailsComuns:[]};
-let acessoEtag=null,etagClientes=null,etagObras=null,etagLancamentos=null;
+let acessoEtag=null,etagClientes=null,etagObras=null,etagLancamentos=null,etagTecnicos=null;
 function spEncodePath(p){return p.split('/').map(s=>encodeURIComponent(s)).join('/');}
 function spPath(f){return `/${SP_BIBLIOTECA}/${SP_PASTA}/${f}`;}
 let _siteId=null;
 async function getSiteId(){if(_siteId)return _siteId;const t=await getGraphToken();if(!t)return null;try{const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${SP_HOSTNAME}:${SP_SITE_PATH}`,{headers:{Authorization:'Bearer '+t}});if(!r.ok)return null;const d=await r.json();_siteId=d.id;return _siteId;}catch(e){return null;}}
 async function spDriveUrl(fp){const s=await getSiteId();if(!s)return null;return `https://graph.microsoft.com/v1.0/sites/${s}/drive/root:${spEncodePath(fp)}`;}
 async function getGraphToken(){if(!msalInstance||!msAccount)return null;try{const r=await msalInstance.acquireTokenSilent({scopes:GRAPH_SCOPES,account:msAccount});return r.accessToken;}catch(e){try{const r=await msalInstance.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}catch(e2){return null;}}}
+
+/* ==================== IMPORTAR DE ORÇAMENTO (leitura da pasta Historico_montagem) ==================== */
+async function listarArquivosOrcamentos(){
+  const t=await getGraphToken(),s=await getSiteId();
+  if(!t||!s)return null;
+  try{
+    let url=`https://graph.microsoft.com/v1.0/sites/${s}/drive/root:${spEncodePath(PASTA_ORCAMENTOS)}:/children?$select=name,id&$top=200`;
+    let out=[];
+    while(url){
+      const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
+      if(!r.ok)return null;
+      const d=await r.json();
+      out=out.concat((d.value||[]).filter(f=>f.name&&f.name.toLowerCase().endsWith('.json')));
+      url=d['@odata.nextLink']||null;
+    }
+    return out;
+  }catch(e){return null;}
+}
+async function lerArquivoOrcamento(nomeArquivo){
+  const t=await getGraphToken();
+  const base=await spDriveUrl(PASTA_ORCAMENTOS+'/'+nomeArquivo);
+  if(!t||!base)return null;
+  try{
+    const r=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});
+    if(!r.ok)return null;
+    return await r.json();
+  }catch(e){return null;}
+}
+let orcamentosCache=null;
+async function carregarOrcamentosCache(forcar){
+  if(orcamentosCache&&!forcar)return orcamentosCache;
+  const arquivos=await listarArquivosOrcamentos();
+  if(arquivos===null)return null;
+  let todos=[];
+  for(const arq of arquivos){
+    const conteudo=await lerArquivoOrcamento(arq.name);
+    if(Array.isArray(conteudo))conteudo.forEach(registro=>todos.push({arquivo:arq.name,registro}));
+  }
+  orcamentosCache=todos;
+  return todos;
+}
+function buscarOrcamentos(termo){
+  if(!orcamentosCache)return [];
+  const q=termo.toLowerCase();
+  return orcamentosCache.filter(x=>{
+    const info=(x.registro.data&&x.registro.data.info)||{};
+    return (info.cliente||'').toLowerCase().includes(q)||(info.obra||'').toLowerCase().includes(q);
+  });
+}
+function mapearOrcamentoParaObra(registro){
+  const info=(registro.data&&registro.data.info)||{};
+  const precos=(registro.data&&registro.data.precos)||{};
+  const servicos=(registro.data&&registro.data.servicos)||{};
+  const tasks=(registro.data&&registro.data.tasks)||{};
+  const partes=[];
+  if(info.vendedor)partes.push('Vendedor: '+info.vendedor);
+  if(info.responsavel)partes.push('Responsável: '+info.responsavel);
+  if(info.endereco)partes.push('Endereço: '+info.endereco);
+  if(info.hectares)partes.push('Hectares: '+info.hectares);
+  if(info.numPivos!=null)partes.push('Nº Pivôs: '+info.numPivos);
+  if(registro.data&&registro.data.observacoes)partes.push('Obs: '+registro.data.observacoes);
+  return{
+    nomeCliente:(info.cliente||'').trim(),
+    nomeObra:(info.obra||'').trim()||'Obra Principal',
+    valorNegociado:Math.round(n(registro.valorFinal)*100)/100,
+    descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):''),
+    tarefas:Object.assign({},tasks),
+    precosImportados:{
+      horaEncargo:n(precos.horaEncargo),
+      pctMontador:n(precos.pctMontador),
+      pctAuxiliar:n(precos.pctAuxiliar),
+      tubDN350:n(precos.tubDN350),
+      tubDN450:n(precos.tubDN450),
+      tubDN600:n(precos.tubDN600),
+      maquinaPead:!!servicos.maquinaPead,
+    },
+  };
+}
+/* ==================== PREMIAÇÃO DO MÊS (relatório + exportação Excel) ==================== */
+function pagamentosDoMes(competencia){
+  const linhas=[];
+  obras.forEach(o=>{
+    (o.pagamentosPremiacao||[]).forEach(p=>{
+      if(p.competencia!==competencia)return;
+      const c=clientePorId(o.clienteId);
+      (p.tecnicoIds||[]).forEach(tid=>{
+        const t=tecnicos.find(x=>x.id===tid);
+        linhas.push({tecnico:t?t.nome:'(técnico removido)',funcao:t?t.funcao:'—',obra:o.nome,cliente:c?c.nome:'—',valor:n(p.valor),observacao:p.observacao||''});
+      });
+    });
+  });
+  return linhas;
+}
+function resumoPorTecnico(linhas){
+  const porTecnico={};
+  linhas.forEach(l=>{
+    porTecnico[l.tecnico]=porTecnico[l.tecnico]||{funcao:l.funcao,total:0,obras:new Set()};
+    porTecnico[l.tecnico].total+=l.valor;
+    porTecnico[l.tecnico].obras.add(l.obra);
+  });
+  return Object.entries(porTecnico).map(([nome,info])=>({nome,funcao:info.funcao,total:info.total,qtdObras:info.obras.size})).sort((a,b)=>b.total-a.total);
+}
+function renderPremiacaoMes(){
+  const competencia=document.getElementById('inp-mes-premiacao').value;
+  const linhas=pagamentosDoMes(competencia);
+  const resumo=resumoPorTecnico(linhas);
+  const totalGeral=linhas.reduce((a,l)=>a+l.valor,0);
+  document.getElementById('resumo-premiacao-mes').innerHTML=resumo.length?
+    `<div style="font-size:.85rem;line-height:1.9;">`+resumo.map(r=>`<b>${escapeHtml(r.nome)}</b> <span class="reg R1">${escapeHtml(r.funcao)}</span> — ${brl(r.total)} · ${int(r.qtdObras)} obra(s)`).join('<br>')+`<br><b>Total geral do mês:</b> ${brl(totalGeral)}</div>`
+    :`<div style="color:var(--texto-suave);font-size:.85rem;">Nenhum pagamento registrado para esta competência.</div>`;
+  document.getElementById('tbody-premiacao-mes').innerHTML=linhas.length?linhas.map(l=>`<tr><td>${escapeHtml(l.tecnico)}</td><td>${escapeHtml(l.funcao)}</td><td>${escapeHtml(l.obra)}</td><td>${escapeHtml(l.cliente)}</td><td class="num">${brl(l.valor)}</td><td>${escapeHtml(l.observacao)}</td></tr>`).join(''):`<tr><td colspan="6" style="padding:14px;color:var(--texto-suave);">Nenhum pagamento neste mês.</td></tr>`;
+}
+document.getElementById('btn-premiacao-mes').addEventListener('click',()=>{
+  const hoje=new Date();
+  document.getElementById('inp-mes-premiacao').value=hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0');
+  document.getElementById('overlay-premiacao-mes').style.display='flex';
+  renderPremiacaoMes();
+});
+document.getElementById('btn-fechar-premiacao-mes').addEventListener('click',()=>{document.getElementById('overlay-premiacao-mes').style.display='none';});
+document.getElementById('inp-mes-premiacao').addEventListener('change',renderPremiacaoMes);
+document.getElementById('btn-exportar-excel-premiacao').addEventListener('click',async()=>{
+  const competencia=document.getElementById('inp-mes-premiacao').value;
+  const linhas=pagamentosDoMes(competencia);
+  if(!linhas.length){toast('Nada para exportar nesta competência.');return;}
+  const btn=document.getElementById('btn-exportar-excel-premiacao');
+  const textoOriginal=btn.textContent;btn.textContent='⏳ gerando...';btn.disabled=true;
+  try{
+    await loadSheetJs();
+    const resumo=resumoPorTecnico(linhas);
+    const wb=XLSX.utils.book_new();
+    const wsDetalhe=XLSX.utils.json_to_sheet(linhas.map(l=>({Técnico:l.tecnico,Função:l.funcao,Obra:l.obra,Cliente:l.cliente,'Valor (R$)':l.valor,Observação:l.observacao})));
+    XLSX.utils.book_append_sheet(wb,wsDetalhe,'Detalhado');
+    const wsResumo=XLSX.utils.json_to_sheet(resumo.map(r=>({Técnico:r.nome,Função:r.funcao,'Qtd. Obras':r.qtdObras,'Total (R$)':r.total})));
+    XLSX.utils.book_append_sheet(wb,wsResumo,'Resumo por Técnico');
+    XLSX.writeFile(wb,'premiacao_'+competencia+'.xlsx');
+  }catch(e){
+    toast('Não foi possível gerar o Excel (biblioteca não carregou). Confira a conexão.');
+  }finally{
+    btn.textContent=textoOriginal;btn.disabled=false;
+  }
+});
+
+document.getElementById('btn-importar-orcamento').addEventListener('click',async()=>{
+  if(!souAdmin()){toast('Somente administradores podem importar orçamentos.');return;}
+  document.getElementById('overlay-importar-orcamento').style.display='flex';
+  document.getElementById('lista-resultados-orcamento').innerHTML='';
+  document.getElementById('preview-orcamento').style.display='none';
+  document.getElementById('inp-busca-orcamento').value='';
+  document.getElementById('status-busca-orcamento').textContent='⏳ carregando orçamentos da pasta...';
+  const todos=await carregarOrcamentosCache(false);
+  document.getElementById('status-busca-orcamento').textContent=todos?`${todos.length} orçamento(s) encontrados. Digite para buscar por cliente ou obra.`:'⚠ não consegui acessar a pasta de orçamentos. Confira o login e as permissões.';
+});
+document.getElementById('btn-fechar-importar-orcamento').addEventListener('click',()=>{document.getElementById('overlay-importar-orcamento').style.display='none';});
+document.getElementById('inp-busca-orcamento').addEventListener('input',e=>{
+  const termo=e.target.value.trim();
+  const cont=document.getElementById('lista-resultados-orcamento');
+  document.getElementById('preview-orcamento').style.display='none';
+  if(!termo){cont.innerHTML='';return;}
+  const resultados=buscarOrcamentos(termo).slice(0,20);
+  if(!resultados.length){cont.innerHTML='<div style="color:var(--texto-suave);font-size:.82rem;">Nenhum resultado.</div>';return;}
+  cont.innerHTML=resultados.map((x,i)=>{
+    const info=(x.registro.data&&x.registro.data.info)||{};
+    return `<div data-idx-orc="${i}" style="cursor:pointer;padding:8px 0;border-bottom:1px solid var(--areia-escura);">
+      <div style="font-weight:600;font-size:.85rem;">${escapeHtml(info.cliente||'(sem cliente)')} — ${escapeHtml(info.obra||'(sem obra)')}</div>
+      <div style="font-size:.74rem;color:var(--texto-suave);">${brl(n(x.registro.valorFinal))} · ${x.registro.savedAt?new Date(x.registro.savedAt).toLocaleDateString('pt-BR'):'—'} · arquivo: ${escapeHtml(x.arquivo)}</div>
+    </div>`;
+  }).join('');
+  cont.querySelectorAll('[data-idx-orc]').forEach(el=>el.addEventListener('click',()=>mostrarPreviewOrcamento(resultados[+el.dataset.idxOrc])));
+});
+function mostrarPreviewOrcamento(item){
+  const mapa=mapearOrcamentoParaObra(item.registro);
+  const clienteExistente=clientes.find(c=>normNome(c.nome)===normNome(mapa.nomeCliente));
+  const calc=calcularPremiacaoDados(mapa.tarefas,mapa.precosImportados);
+  const prev=document.getElementById('preview-orcamento');
+  prev.innerHTML=`
+    <div style="font-size:.78rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:8px;">Prévia — confira antes de usar</div>
+    <div style="font-size:.85rem;line-height:1.8;">
+      <b>Cliente:</b> ${escapeHtml(mapa.nomeCliente||'—')} ${mapa.nomeCliente?(clienteExistente?'<span class="reg R1">já cadastrado</span>':'<span class="reg R2">novo — será criado</span>'):''}<br>
+      <b>Obra:</b> ${escapeHtml(mapa.nomeObra)}<br>
+      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}<br>
+      <b>Descrição sugerida:</b> ${escapeHtml(mapa.descricao)}<br>
+      <b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h ·
+      <b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}
+    </div>
+    <p class="nota" style="margin:10px 0;">Categoria, Regional e Data de Início não vêm do orçamento — preencha depois de abrir o cadastro. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
+    <button class="btn primary small" id="btn-usar-orcamento" type="button">Usar estes dados</button>
+    <span id="status-usar-orcamento" style="font-size:.78rem;color:var(--texto-suave);margin-left:8px;"></span>
+  `;
+  prev.style.display='block';
+  document.getElementById('btn-usar-orcamento').addEventListener('click',async()=>{
+    const statusEl=document.getElementById('status-usar-orcamento');
+    let cliente=clientes.find(c=>normNome(c.nome)===normNome(mapa.nomeCliente));
+    if(!cliente&&mapa.nomeCliente){
+      statusEl.textContent='⏳ criando cliente…';
+      cliente={id:gerarId('c'),nome:mapa.nomeCliente,regional:'',contato:'',observacoes:'',criadoEm:new Date().toISOString()};
+      clientes.push(cliente);
+      const ok=await salvarColecao('clientes');
+      if(!ok){clientes.pop();statusEl.textContent='⚠ não foi possível criar o cliente. Tente de novo.';return;}
+      saveCache();
+    }
+    document.getElementById('overlay-importar-orcamento').style.display='none';
+    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados});
+  });
+}
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}
 async function graphPutEtag(fp,body,etag){const t=await getGraphToken();if(!t)return {ok:false,status:0};const base=await spDriveUrl(fp);if(!base)return {ok:false,status:0};const h={Authorization:'Bearer '+t,'Content-Type':'application/octet-stream'};if(etag)h['If-Match']=etag;try{const r=await fetch(base+':/content',{method:'PUT',headers:h,body});let ne=r.headers.get('ETag');if(r.ok){try{const j=await r.json();ne=j.eTag||j.cTag||ne;}catch(e){}}return {ok:r.ok,status:r.status,etag:ne};}catch(e){return {ok:false,status:0};}}
 let _pastaOk=false;
@@ -1229,10 +1663,10 @@ async function carregarColecao(nomeArquivo){
 }
 async function salvarColecao(qual){
   await ensureFolder();
-  const arquivo=qual==='clientes'?CLIENTES_FILE:qual==='obras'?OBRAS_FILE:LANCAMENTOS_FILE;
-  function getArr(){return qual==='clientes'?clientes:qual==='obras'?obras:lancamentos;}
-  function setArr(v){if(qual==='clientes')clientes=v;else if(qual==='obras')obras=v;else lancamentos=v;}
-  let etagAtual=qual==='clientes'?etagClientes:qual==='obras'?etagObras:etagLancamentos;
+  const arquivo=qual==='clientes'?CLIENTES_FILE:qual==='obras'?OBRAS_FILE:qual==='tecnicos'?TECNICOS_FILE:LANCAMENTOS_FILE;
+  function getArr(){return qual==='clientes'?clientes:qual==='obras'?obras:qual==='tecnicos'?tecnicos:lancamentos;}
+  function setArr(v){if(qual==='clientes')clientes=v;else if(qual==='obras')obras=v;else if(qual==='tecnicos')tecnicos=v;else lancamentos=v;}
+  let etagAtual=qual==='clientes'?etagClientes:qual==='obras'?etagObras:qual==='tecnicos'?etagTecnicos:etagLancamentos;
   let ok=false,tent=0;
   while(tent<5&&!ok){
     tent++;
@@ -1248,7 +1682,27 @@ async function salvarColecao(qual){
       }else break;
     }else break;
   }
-  if(qual==='clientes')etagClientes=etagAtual;else if(qual==='obras')etagObras=etagAtual;else etagLancamentos=etagAtual;
+  if(qual==='clientes')etagClientes=etagAtual;else if(qual==='obras')etagObras=etagAtual;else if(qual==='tecnicos')etagTecnicos=etagAtual;else etagLancamentos=etagAtual;
+  return ok;
+}
+let etagTarefasTmo=null;
+async function carregarTarefasTmo(){
+  const r=await graphGetJsonEtag(spPath(TAREFAS_TMO_FILE));
+  if(r.ok&&r.data&&Array.isArray(r.data.itens)){
+    const porId={};r.data.itens.forEach(x=>porId[x.id]=x);
+    tarefasTmo=TASKS_TMO_PADRAO.map(t=>Object.assign({},t,porId[t.id]?{horas:n(porId[t.id].horas)}:{}));
+  }
+  if(r.ok)etagTarefasTmo=r.etag;
+}
+async function salvarTarefasTmo(){
+  await ensureFolder();let ok=false,tent=0;
+  while(tent<5&&!ok){
+    tent++;
+    const res=await graphPutEtag(spPath(TAREFAS_TMO_FILE),new TextEncoder().encode(JSON.stringify({itens:tarefasTmo})),etagTarefasTmo);
+    if(res.ok){etagTarefasTmo=res.etag||etagTarefasTmo;ok=true;}
+    else if(res.status===412||res.status===409){await carregarTarefasTmo();}
+    else break;
+  }
   return ok;
 }
 let carregando=false;
@@ -1256,14 +1710,16 @@ function setSyncStatus(t,c){const el=document.getElementById('sync-status');if(!
 async function carregarDados(silencioso){
   if(!msAccount||carregando)return;
   carregando=true;setSyncStatus('☁ carregando…','saving');
-  const [rc,ro,rl]=await Promise.all([carregarColecao(CLIENTES_FILE),carregarColecao(OBRAS_FILE),carregarColecao(LANCAMENTOS_FILE)]);
+  const [rc,ro,rl,rt]=await Promise.all([carregarColecao(CLIENTES_FILE),carregarColecao(OBRAS_FILE),carregarColecao(LANCAMENTOS_FILE),carregarColecao(TECNICOS_FILE)]);
   clientes=(rc.dados&&Array.isArray(rc.dados.itens))?rc.dados.itens:[];
   obras=(ro.dados&&Array.isArray(ro.dados.itens))?ro.dados.itens:[];
   lancamentos=(rl.dados&&Array.isArray(rl.dados.itens))?rl.dados.itens:[];
-  etagClientes=rc.etag;etagObras=ro.etag;etagLancamentos=rl.etag;
+  tecnicos=(rt.dados&&Array.isArray(rt.dados.itens))?rt.dados.itens:[];
+  etagClientes=rc.etag;etagObras=ro.etag;etagLancamentos=rl.etag;etagTecnicos=rt.etag;
+  await carregarTarefasTmo();
   ultimaSync=new Date().toISOString();saveCache();
   carregando=false;setSyncStatus('☁ atualizado','ok');
-  if(!silencioso)toast(`Dados atualizados (${clientes.length} clientes, ${obras.length} obras, ${lancamentos.length} lançamentos).`);
+  if(!silencioso)toast(`Dados atualizados (${clientes.length} clientes, ${obras.length} obras, ${lancamentos.length} lançamentos, ${tecnicos.length} técnicos).`);
   renderAll();
 }
 let _pollTimer=null;

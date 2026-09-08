@@ -418,6 +418,44 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <p class="nota" style="margin-top:10px;">Se um pagamento tiver mais de um técnico marcado, o valor conta inteiro para cada um (não é dividido) — reflete exatamente o que foi registrado na Obra.</p>
   </div>
 </div>
+<div class="overlay" id="overlay-medicoes-obra">
+  <div class="box" style="max-width:820px;width:97%;text-align:left;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;">
+      <h2 id="titulo-medicoes-obra" style="margin:0;">Obra</h2>
+      <button class="btn ghost small" id="btn-fechar-medicoes-obra" type="button">✕ Fechar</button>
+    </div>
+    <p class="pane-desc" style="margin:0 0 12px;">Divida a quantidade planejada de cada tarefa em até 3 medições parciais. O valor de Montador/Auxiliar é calculado automaticamente pela mesma fórmula do TMO.</p>
+    <div id="abas-medicao" style="display:flex;gap:8px;margin-bottom:12px;"></div>
+    <div class="tablewrap">
+      <table class="dt">
+        <thead><tr><th>Tarefa</th><th class="r">Planejado</th><th class="r">Já medido (outras)</th><th class="r">Nesta medição</th><th class="r">Restante</th></tr></thead>
+        <tbody id="tbody-medicao"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin:12px 0;">
+      <button class="btn primary small" id="btn-salvar-medicao" type="button">Salvar Medição</button>
+      <span id="status-medicoes-obra" style="font-size:.78rem;color:var(--texto-suave);"></span>
+    </div>
+    <div id="totais-medicao" style="font-size:.9rem;margin:10px 0;padding:10px;background:var(--areia);border-radius:6px;"></div>
+    <div class="card" style="padding:14px;">
+      <h3 style="margin-bottom:10px;">Registrar Pagamento desta Medição</h3>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:220px;">
+          <div style="font-size:.72rem;color:var(--texto-suave);text-transform:uppercase;margin-bottom:4px;">Montador — <span id="valor-pagar-montador">R$ 0,00</span></div>
+          <select id="sel-tecnico-montador-medicao" style="width:100%;"></select>
+          <input type="date" id="data-pagamento-montador-medicao" style="margin-top:6px;width:100%;">
+          <button class="btn ghost small" id="btn-pagar-montador-medicao" type="button" style="margin-top:6px;">Registrar Pagamento</button>
+        </div>
+        <div style="flex:1;min-width:220px;">
+          <div style="font-size:.72rem;color:var(--texto-suave);text-transform:uppercase;margin-bottom:4px;">Auxiliar — <span id="valor-pagar-auxiliar">R$ 0,00</span></div>
+          <select id="sel-tecnico-auxiliar-medicao" style="width:100%;"></select>
+          <input type="date" id="data-pagamento-auxiliar-medicao" style="margin-top:6px;width:100%;">
+          <button class="btn ghost small" id="btn-pagar-auxiliar-medicao" type="button" style="margin-top:6px;">Registrar Pagamento</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -956,9 +994,12 @@ function renderObras(){
     const qtdLanc=lancamentos.filter(l=>l.obraId===o.id).length;
     const dAtraso=diasAtraso(o);
     const corAtraso=(dAtraso!==null&&dAtraso>0)?'color:var(--erro);font-weight:700;':'';
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
   }).join(''):`<tr><td colspan="${admin?8:7}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra encontrada.</td></tr>`;
-  if(admin)tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
+  if(admin){
+    tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
+    tbody.querySelectorAll('[data-medicoes-obra]').forEach(b=>b.addEventListener('click',()=>abrirMedicoesObra(b.dataset.medicoesObra)));
+  }
   document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)'+(lista.length!==obras.length?` (de ${int(obras.length)})`:'');
 }
 document.getElementById('btn-nova-obra').addEventListener('click',()=>abrirModal('obra',null));
@@ -1070,6 +1111,7 @@ const ESQUEMAS={
     {chave:'dataConclusao',label:'Data de Conclusão',tipo:'date'},
     {chave:'status',label:'Status (calculado)',tipo:'statusComputado'},
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number'},
+    {chave:'tarefas',label:'Tarefas Planejadas (Projeto Pivô)',tipo:'tarefasEditor'},
     {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
     {chave:'adutora',label:'Adutora (m)',tipo:'number'},
@@ -1145,6 +1187,10 @@ function campoHtmlGenerico(campo,valorAtual){
         `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar Pagamento</button>`+
       `</div>`+
       `<input type="text" id="${idc}__obs" placeholder="Observação (opcional)" style="width:100%;margin-top:6px;">`;
+  }else if(campo.tipo==='tarefasEditor'){
+    inputHtml=`<div class="tablewrap" style="max-height:260px;"><table class="dt"><thead><tr><th>Tarefa</th><th class="r">Planejado</th></tr></thead><tbody id="${idc}__lista"></tbody></table></div>`+
+      `<button type="button" class="btn ghost small" id="${idc}__recalcular" style="margin-top:8px;">Recalcular Lances/Bombeamentos/Adutora</button>`+
+      `<span class="nota">Preencha aqui manualmente se a obra não veio de um orçamento, ou ajuste os valores importados. O botão acima só sugere os 3 campos abaixo — eles continuam editáveis.</span>`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
@@ -1152,18 +1198,42 @@ function campoHtmlGenerico(campo,valorAtual){
 }
 let pausasEmEdicao=[];
 let pagamentosEmEdicao=[];
+let tarefasEmEdicao={};
 let seedAtualObra=null;
+function sugerirCamposDeTarefas(tarefas){
+  return{
+    qtdLances:n(tarefas['ELET-002']),
+    qtdBombeamentos:n(tarefas['ELET-003']),
+    adutora:n(tarefas['MONT-002'])+n(tarefas['MONT-003'])+n(tarefas['MONT-004']),
+  };
+}
+function renderTarefasEditor(){
+  const cont=document.getElementById('campo-modal-tarefas__lista');
+  if(!cont)return;
+  cont.innerHTML=tarefasTmo.map(t=>{
+    const v=tarefasEmEdicao[t.id];
+    return `<tr><td>${escapeHtml(t.desc)}</td><td><input type="number" step="any" data-task-plan="${escapeHtml(t.id)}" value="${v==null?'':v}" style="width:90px;text-align:right;"></td></tr>`;
+  }).join('');
+  cont.querySelectorAll('[data-task-plan]').forEach(el=>{
+    el.addEventListener('input',()=>{
+      const id=el.dataset.taskPlan;
+      tarefasEmEdicao[id]=el.value===''?undefined:Number(el.value);
+      renderPremiacaoEditor();
+    });
+  });
+}
 function renderPremiacaoEditor(){
   const resumo=document.getElementById('campo-modal-premiacao__resumo');
   if(!resumo)return;
   const item=modalEditandoId?obras.find(o=>o.id===modalEditandoId):null;
-  const tarefas=(item&&item.tarefas)||(seedAtualObra&&seedAtualObra.tarefas)||null;
+  const temTarefas=Object.values(tarefasEmEdicao).some(v=>n(v)>0);
+  const tarefas=temTarefas?tarefasEmEdicao:null;
   const precosImportados=(item&&item.precosImportados)||(seedAtualObra&&seedAtualObra.precosImportados)||null;
   const calc=calcularPremiacaoDados(tarefas,precosImportados);
   const totalPago=pagamentosEmEdicao.reduce((a,p)=>a+n(p.valor),0);
   const saldo=calc.premiacaoTotal-totalPago;
-  if(!tarefas){
-    resumo.innerHTML=`<span style="color:var(--texto-suave);">Esta obra não tem tarefas de montagem vinculadas (só vem de obras importadas de um orçamento). Ainda é possível registrar pagamentos manualmente.</span>`;
+  if(!tarefas||!precosImportados){
+    resumo.innerHTML=`<span style="color:var(--texto-suave);">${!tarefas?'Preencha as Tarefas Planejadas acima para calcular. ':''}${(!precosImportados&&tarefas)?'Sem preços importados de um orçamento, não é possível calcular o valor automaticamente. ':''}Ainda é possível registrar pagamentos manualmente.</span>`;
   }else{
     resumo.innerHTML=`<b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h<br>`+
       `<b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}<br>`+
@@ -1240,6 +1310,7 @@ function abrirModal(entidade,id,seed){
   if(entidade==='obra'){
     pausasEmEdicao=(itemExistente&&Array.isArray(itemExistente.pausas))?JSON.parse(JSON.stringify(itemExistente.pausas)):[];
     pagamentosEmEdicao=(itemExistente&&Array.isArray(itemExistente.pagamentosPremiacao))?JSON.parse(JSON.stringify(itemExistente.pagamentosPremiacao)):[];
+    tarefasEmEdicao=Object.assign({},(valoresIniciais&&valoresIniciais.tarefas)||{});
   }
   document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>{
     if(campo.tipo==='statusComputado')return campoHtmlGenerico(campo,statusEfetivo(valoresIniciais||{dataInicio:'',prazoDias:null,pausas:[],concluida:false,status:''}));
@@ -1258,6 +1329,18 @@ function abrirModal(entidade,id,seed){
   });
   if(entidade==='obra'){
     renderListaPausasEditor();
+    renderTarefasEditor();
+    const btnRecalcularTarefas=document.getElementById('campo-modal-tarefas__recalcular');
+    if(btnRecalcularTarefas)btnRecalcularTarefas.addEventListener('click',()=>{
+      const sug=sugerirCamposDeTarefas(tarefasEmEdicao);
+      const elLances=document.getElementById('campo-modal-qtdLances');
+      const elBomb=document.getElementById('campo-modal-qtdBombeamentos');
+      const elAdut=document.getElementById('campo-modal-adutora');
+      if(elLances)elLances.value=sug.qtdLances;
+      if(elBomb)elBomb.value=sug.qtdBombeamentos;
+      if(elAdut)elAdut.value=sug.adutora;
+      toast('Lances/Bombeamentos/Adutora recalculados a partir das tarefas.');
+    });
     const btnAdd=document.getElementById('campo-modal-pausas__add');
     if(btnAdd)btnAdd.addEventListener('click',()=>{
       const ini=document.getElementById('campo-modal-pausas__inicio').value;
@@ -1310,6 +1393,7 @@ function coletarCampos(entidade){
       return;
     }
     if(campo.tipo==='pausasEditor'){obj[campo.chave]=pausasEmEdicao;return;}
+    if(campo.tipo==='tarefasEditor'){obj[campo.chave]=tarefasEmEdicao;return;}
     if(campo.tipo==='premiacaoEditor'){obj[campo.chave]=pagamentosEmEdicao;return;}
     if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
@@ -1330,7 +1414,6 @@ document.getElementById('btn-salvar-registro').addEventListener('click',async()=
   if(!modalEditandoId){
     const novo=Object.assign({id:gerarId(modalEntidade[0])},campos,{criadoEm:new Date().toISOString()});
     if(modalEntidade==='obra'&&seedAtualObra){
-      if(seedAtualObra.tarefas)novo.tarefas=seedAtualObra.tarefas;
       if(seedAtualObra.precosImportados)novo.precosImportados=seedAtualObra.precosImportados;
     }
     colecao.push(novo);
@@ -1507,12 +1590,17 @@ function mapearOrcamentoParaObra(registro){
   if(info.hectares)partes.push('Hectares: '+info.hectares);
   if(info.numPivos!=null)partes.push('Nº Pivôs: '+info.numPivos);
   if(registro.data&&registro.data.observacoes)partes.push('Obs: '+registro.data.observacoes);
+  const tarefasImportadas=Object.assign({},tasks);
+  const sugestoes=sugerirCamposDeTarefas(tarefasImportadas);
   return{
     nomeCliente:(info.cliente||'').trim(),
     nomeObra:(info.obra||'').trim()||'Obra Principal',
     valorNegociado:Math.round(n(registro.valorFinal)*100)/100,
     descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):''),
-    tarefas:Object.assign({},tasks),
+    tarefas:tarefasImportadas,
+    qtdLances:sugestoes.qtdLances,
+    qtdBombeamentos:sugestoes.qtdBombeamentos,
+    adutora:sugestoes.adutora,
     precosImportados:{
       horaEncargo:n(precos.horaEncargo),
       pctMontador:n(precos.pctMontador),
@@ -1588,6 +1676,123 @@ document.getElementById('btn-exportar-excel-premiacao').addEventListener('click'
   }
 });
 
+/* ==================== MEDIÇÕES PARCIAIS (por tarefa, até 3 medições) ==================== */
+let obraMedicoesAtual=null;
+let medicaoSelecionada=0;
+let medicoesEmEdicao=[{quantidades:{}},{quantidades:{}},{quantidades:{}}];
+function temTarefasPlanejadas(obra){return !!(obra&&obra.tarefas&&Object.values(obra.tarefas).some(v=>n(v)>0));}
+function abrirMedicoesObra(obraId){
+  if(!souAdmin()){toast('Somente administradores podem preencher medições.');return;}
+  const obra=obras.find(o=>o.id===obraId);
+  if(!obra||!temTarefasPlanejadas(obra)){toast('Esta obra não tem tarefas de montagem planejadas — preencha em "Tarefas Planejadas" no cadastro da Obra.');return;}
+  obraMedicoesAtual=obraId;
+  const existentes=(obra.medicoes&&obra.medicoes.length)?obra.medicoes:[{},{},{}];
+  medicoesEmEdicao=existentes.map(m=>({quantidades:Object.assign({},m.quantidades||{})}));
+  medicaoSelecionada=0;
+  const c=clientePorId(obra.clienteId);
+  document.getElementById('titulo-medicoes-obra').textContent=(c?c.nome:'?')+' — '+obra.nome;
+  document.getElementById('status-medicoes-obra').textContent='';
+  const montadores=tecnicos.filter(t=>t.funcao==='Montador'),auxiliares=tecnicos.filter(t=>t.funcao==='Auxiliar');
+  document.getElementById('sel-tecnico-montador-medicao').innerHTML='<option value="">Selecione o montador</option>'+montadores.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)}</option>`).join('');
+  document.getElementById('sel-tecnico-auxiliar-medicao').innerHTML='<option value="">Selecione o auxiliar</option>'+auxiliares.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)}</option>`).join('');
+  renderAbasMedicao();
+  renderGridMedicao();
+  document.getElementById('overlay-medicoes-obra').style.display='flex';
+}
+function fecharMedicoesObra(){document.getElementById('overlay-medicoes-obra').style.display='none';obraMedicoesAtual=null;}
+document.getElementById('btn-fechar-medicoes-obra').addEventListener('click',fecharMedicoesObra);
+function outrasMedicoes(taskId){
+  return medicoesEmEdicao.map((m,i)=>i===medicaoSelecionada?0:n(m.quantidades[taskId])).reduce((a,b)=>a+b,0);
+}
+function renderAbasMedicao(){
+  document.getElementById('abas-medicao').innerHTML=
+    medicoesEmEdicao.map((m,i)=>`<button type="button" class="btn ${i===medicaoSelecionada?'primary':'ghost'} small" data-med="${i}">Medição ${i+1}</button>`).join('')+
+    `<button type="button" class="btn ghost small" id="btn-add-medicao">+ Nova Medição</button>`+
+    (medicoesEmEdicao.length>1?`<button type="button" class="btn danger small" id="btn-rem-medicao">Remover esta medição</button>`:'');
+  document.querySelectorAll('#abas-medicao [data-med]').forEach(b=>b.addEventListener('click',()=>{medicaoSelecionada=+b.dataset.med;renderAbasMedicao();renderGridMedicao();}));
+  const btnAdd=document.getElementById('btn-add-medicao');
+  if(btnAdd)btnAdd.addEventListener('click',()=>{
+    medicoesEmEdicao.push({quantidades:{}});
+    medicaoSelecionada=medicoesEmEdicao.length-1;
+    renderAbasMedicao();renderGridMedicao();
+  });
+  const btnRem=document.getElementById('btn-rem-medicao');
+  if(btnRem)btnRem.addEventListener('click',()=>{
+    const temDados=Object.values(medicoesEmEdicao[medicaoSelecionada].quantidades).some(v=>n(v)>0);
+    if(temDados&&!confirm('Esta medição tem quantidades preenchidas. Remover mesmo assim?'))return;
+    medicoesEmEdicao.splice(medicaoSelecionada,1);
+    medicaoSelecionada=Math.max(0,medicaoSelecionada-1);
+    renderAbasMedicao();renderGridMedicao();
+  });
+}
+function renderGridMedicao(){
+  const obra=obras.find(o=>o.id===obraMedicoesAtual);
+  if(!obra)return;
+  const tarefasPlanejadas=obra.tarefas||{};
+  const idsAtivos=tarefasTmo.filter(t=>n(tarefasPlanejadas[t.id])>0);
+  const tbody=document.getElementById('tbody-medicao');
+  tbody.innerHTML=idsAtivos.length?idsAtivos.map(t=>{
+    const planejado=n(tarefasPlanejadas[t.id]);
+    const outras=outrasMedicoes(t.id);
+    const nesta=medicoesEmEdicao[medicaoSelecionada].quantidades[t.id];
+    const restante=planejado-outras-n(nesta);
+    return `<tr><td>${escapeHtml(t.desc)}</td><td class="num">${planejado}</td><td class="num">${outras}</td><td><input type="number" step="any" data-task-med="${escapeHtml(t.id)}" value="${nesta==null?'':nesta}" style="width:80px;text-align:right;"></td><td class="num cel-restante" style="color:${restante<0?'var(--erro)':'inherit'};">${restante}</td></tr>`;
+  }).join(''):`<tr><td colspan="5" style="padding:14px;color:var(--texto-suave);">Nenhuma tarefa com quantidade planejada nesta obra.</td></tr>`;
+  tbody.querySelectorAll('[data-task-med]').forEach(el=>{
+    el.addEventListener('input',()=>{
+      const id=el.dataset.taskMed;
+      medicoesEmEdicao[medicaoSelecionada].quantidades[id]=el.value===''?undefined:Number(el.value);
+      const planejado=n(tarefasPlanejadas[id]);
+      const outras=outrasMedicoes(id);
+      const restante=planejado-outras-n(medicoesEmEdicao[medicaoSelecionada].quantidades[id]);
+      const cel=el.closest('tr').querySelector('.cel-restante');
+      cel.textContent=restante;cel.style.color=restante<0?'var(--erro)':'inherit';
+      renderTotaisMedicao();
+    });
+  });
+  renderTotaisMedicao();
+}
+function renderTotaisMedicao(){
+  const obra=obras.find(o=>o.id===obraMedicoesAtual);
+  if(!obra)return;
+  const calc=calcularPremiacaoDados(medicoesEmEdicao[medicaoSelecionada].quantidades,obra.precosImportados);
+  document.getElementById('totais-medicao').innerHTML=`<b>Medição ${medicaoSelecionada+1}</b> — Valor Montador: ${brl(calc.laborMont)} · Valor Auxiliar: ${brl(calc.laborAux)} · TMO: ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h`;
+  document.getElementById('valor-pagar-montador').textContent=brl(calc.laborMont);
+  document.getElementById('valor-pagar-auxiliar').textContent=brl(calc.laborAux);
+}
+document.getElementById('btn-salvar-medicao').addEventListener('click',async()=>{
+  const obra=obras.find(o=>o.id===obraMedicoesAtual);
+  if(!obra)return;
+  obra.medicoes=medicoesEmEdicao.map(m=>({quantidades:Object.assign({},m.quantidades)}));
+  const statusEl=document.getElementById('status-medicoes-obra');
+  statusEl.textContent='⏳ salvando…';
+  const ok=await salvarColecao('obras');
+  if(ok){saveCache();statusEl.textContent='✓ medição salva.';renderAll();}
+  else statusEl.textContent='⚠ não foi possível salvar.';
+});
+async function registrarPagamentoMedicao(papel){
+  const obra=obras.find(o=>o.id===obraMedicoesAtual);
+  if(!obra)return;
+  const selId=papel==='Montador'?'sel-tecnico-montador-medicao':'sel-tecnico-auxiliar-medicao';
+  const dataId=papel==='Montador'?'data-pagamento-montador-medicao':'data-pagamento-auxiliar-medicao';
+  const tecId=document.getElementById(selId).value;
+  const data=document.getElementById(dataId).value;
+  if(!tecId){toast('Selecione o '+papel.toLowerCase()+' que vai receber.');return;}
+  const calc=calcularPremiacaoDados(medicoesEmEdicao[medicaoSelecionada].quantidades,obra.precosImportados);
+  const valor=papel==='Montador'?calc.laborMont:calc.laborAux;
+  if(!valor||valor<=0){toast('O valor desta medição está zerado — preencha as quantidades primeiro.');return;}
+  const competencia=data?data.slice(0,7):new Date().toISOString().slice(0,7);
+  obra.pagamentosPremiacao=obra.pagamentosPremiacao||[];
+  obra.pagamentosPremiacao.push({id:gerarId('pg'),competencia,valor:Math.round(valor*100)/100,tecnicoIds:[tecId],observacao:'Medição '+(medicaoSelecionada+1)});
+  const statusEl=document.getElementById('status-medicoes-obra');
+  statusEl.textContent='⏳ salvando pagamento…';
+  const ok=await salvarColecao('obras');
+  if(ok){saveCache();statusEl.textContent='✓ pagamento de '+papel.toLowerCase()+' registrado.';toast('Pagamento registrado.');renderAll();}
+  else{obra.pagamentosPremiacao.pop();statusEl.textContent='⚠ não foi possível registrar o pagamento.';}
+}
+document.getElementById('btn-pagar-montador-medicao').addEventListener('click',()=>registrarPagamentoMedicao('Montador'));
+document.getElementById('btn-pagar-auxiliar-medicao').addEventListener('click',()=>registrarPagamentoMedicao('Auxiliar'));
+
 document.getElementById('btn-importar-orcamento').addEventListener('click',async()=>{
   if(!souAdmin()){toast('Somente administradores podem importar orçamentos.');return;}
   document.getElementById('overlay-importar-orcamento').style.display='flex';
@@ -1627,10 +1832,11 @@ function mostrarPreviewOrcamento(item){
       <b>Obra:</b> ${escapeHtml(mapa.nomeObra)}<br>
       <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}<br>
       <b>Descrição sugerida:</b> ${escapeHtml(mapa.descricao)}<br>
+      <b>QTD Lances:</b> ${int(mapa.qtdLances)} · <b>QTD Bombeamentos:</b> ${int(mapa.qtdBombeamentos)} · <b>Adutora:</b> ${int(mapa.adutora)} m<br>
       <b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h ·
       <b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}
     </div>
-    <p class="nota" style="margin:10px 0;">Categoria, Regional e Data de Início não vêm do orçamento — preencha depois de abrir o cadastro. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
+    <p class="nota" style="margin:10px 0;">Categoria, Regional e Data de Início não vêm do orçamento — preencha depois de abrir o cadastro. Lances/Bombeamentos/Adutora vêm sugeridos das tarefas — pode ajustar à mão depois. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
     <button class="btn primary small" id="btn-usar-orcamento" type="button">Usar estes dados</button>
     <span id="status-usar-orcamento" style="font-size:.78rem;color:var(--texto-suave);margin-left:8px;"></span>
   `;
@@ -1647,7 +1853,7 @@ function mostrarPreviewOrcamento(item){
       saveCache();
     }
     document.getElementById('overlay-importar-orcamento').style.display='none';
-    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados});
+    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
   });
 }
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}

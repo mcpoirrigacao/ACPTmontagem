@@ -411,7 +411,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <div id="resumo-premiacao-mes" style="margin-bottom:14px;"></div>
     <div class="tablewrap">
       <table class="dt">
-        <thead><tr><th>Técnico</th><th>Função</th><th>Obra</th><th>Cliente</th><th class="r">Valor</th><th>Observação</th></tr></thead>
+        <thead><tr><th>Técnico</th><th>CPF</th><th>Função</th><th>Obra</th><th>Cliente</th><th class="r">Valor</th><th>Observação</th></tr></thead>
         <tbody id="tbody-premiacao-mes"></tbody>
       </table>
     </div>
@@ -1104,25 +1104,30 @@ const ESQUEMAS={
     {chave:'clienteId',label:'Cliente',tipo:'clienteSelect',obrigatorio:true},
     {chave:'nome',label:'Nome da Obra',tipo:'text',obrigatorio:true},
     {chave:'categoria',label:'Categoria',tipo:'text'},
-    {chave:'dataInicio',label:'Data de Início',tipo:'date'},
+
+    {chave:'dataInicio',label:'Data de Início',tipo:'date',secaoAntes:'Cronograma'},
     {chave:'prazoDias',label:'Prazo Estimado (dias)',tipo:'number'},
-    {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor'},
     {chave:'concluida',label:'Concluído',tipo:'boolean'},
     {chave:'dataConclusao',label:'Data de Conclusão',tipo:'date'},
     {chave:'status',label:'Status (calculado)',tipo:'statusComputado'},
-    {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number'},
-    {chave:'tarefas',label:'Tarefas Planejadas (Projeto Pivô)',tipo:'tarefasEditor'},
-    {chave:'qtdLances',label:'QTD Lances',tipo:'number'},
+    {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor',largo:true},
+
+    {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number',secaoAntes:'Financeiro'},
+
+    {chave:'qtdLances',label:'QTD Lances',tipo:'number',secaoAntes:'Métricas Técnicas'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
     {chave:'adutora',label:'Adutora (m)',tipo:'number'},
-    {chave:'premiacao',label:'Premiação / Pagamento aos Técnicos',tipo:'premiacaoEditor'},
-    {chave:'descricao',label:'Descrição',tipo:'textarea'},
+    {chave:'tarefas',label:'Tarefas Planejadas (Projeto Pivô)',tipo:'tarefasEditor',largo:true},
+
+    {chave:'premiacao',label:'Premiação / Pagamento aos Técnicos',tipo:'premiacaoEditor',largo:true,secaoAntes:'Premiação'},
+
+    {chave:'descricao',label:'Descrição',tipo:'textarea',largo:true,secaoAntes:'Outras Informações'},
   ]},
   tecnico:{titulo:'Técnico',campos:[
     {chave:'nome',label:'Nome',tipo:'text',obrigatorio:true},
     {chave:'funcao',label:'Função',tipo:'select',opcoes:['Montador','Auxiliar'],obrigatorio:true},
     {chave:'contato',label:'Contato',tipo:'text'},
-    {chave:'cpf',label:'CPF',tipo:'text'},
+    {chave:'cpf',label:'CPF',tipo:'cpfMask'},
   ]},
   lancamento:{titulo:'Lançamento',campos:[
     {chave:'obraId',label:'Obra',tipo:'obraSearchSelect',obrigatorio:true},
@@ -1191,10 +1196,20 @@ function campoHtmlGenerico(campo,valorAtual){
     inputHtml=`<div class="tablewrap" style="max-height:260px;"><table class="dt"><thead><tr><th>Tarefa</th><th class="r">Planejado</th></tr></thead><tbody id="${idc}__lista"></tbody></table></div>`+
       `<button type="button" class="btn ghost small" id="${idc}__recalcular" style="margin-top:8px;">Recalcular Lances/Bombeamentos/Adutora</button>`+
       `<span class="nota">Preencha aqui manualmente se a obra não veio de um orçamento, ou ajuste os valores importados. O botão acima só sugere os 3 campos abaixo — eles continuam editáveis.</span>`;
+  }else if(campo.tipo==='cpfMask'){
+    inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(formatarCPF(valorAtual||''))}" placeholder="000.000.000-00" maxlength="14" inputmode="numeric">`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
-  return `<div class="field"><label>${escapeHtml(campo.label)}${campo.obrigatorio?' *':''}</label>${inputHtml}</div>`;
+  const secao=campo.secaoAntes?`<div style="grid-column:1/-1;margin-top:6px;"><h3 style="margin:0 0 2px;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--azul-claro);border-bottom:1px solid var(--areia-escura);padding-bottom:6px;">${escapeHtml(campo.secaoAntes)}</h3></div>`:'';
+  return secao+`<div class="field"${campo.largo?' style="grid-column:1/-1;"':''}><label>${escapeHtml(campo.label)}${campo.obrigatorio?' *':''}</label>${inputHtml}</div>`;
+}
+function formatarCPF(v){
+  const d=String(v||'').replace(/\D/g,'').slice(0,11);
+  if(d.length>9)return d.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/,'$1.$2.$3-$4');
+  if(d.length>6)return d.replace(/(\d{3})(\d{3})(\d{1,3})/,'$1.$2.$3');
+  if(d.length>3)return d.replace(/(\d{3})(\d{1,3})/,'$1.$2');
+  return d;
 }
 let pausasEmEdicao=[];
 let pagamentosEmEdicao=[];
@@ -1325,6 +1340,15 @@ function abrirModal(entidade,id,seed){
     el.addEventListener('input',()=>{
       const achado=opcoesObrasOrdenadas().find(o=>o.label===el.value);
       hid.value=achado?achado.id:'';
+    });
+  });
+  esquema.campos.forEach(campo=>{
+    if(campo.tipo!=='cpfMask')return;
+    const el=document.getElementById('campo-modal-'+campo.chave);
+    if(!el)return;
+    el.addEventListener('input',()=>{
+      el.value=formatarCPF(el.value);
+      el.setSelectionRange(el.value.length,el.value.length);
     });
   });
   if(entidade==='obra'){
@@ -1621,7 +1645,7 @@ function pagamentosDoMes(competencia){
       const c=clientePorId(o.clienteId);
       (p.tecnicoIds||[]).forEach(tid=>{
         const t=tecnicos.find(x=>x.id===tid);
-        linhas.push({tecnico:t?t.nome:'(técnico removido)',funcao:t?t.funcao:'—',obra:o.nome,cliente:c?c.nome:'—',valor:n(p.valor),observacao:p.observacao||''});
+        linhas.push({tecnico:t?t.nome:'(técnico removido)',funcao:t?t.funcao:'—',cpf:t?(t.cpf||'—'):'—',obra:o.nome,cliente:c?c.nome:'—',valor:n(p.valor),observacao:p.observacao||''});
       });
     });
   });
@@ -1630,11 +1654,11 @@ function pagamentosDoMes(competencia){
 function resumoPorTecnico(linhas){
   const porTecnico={};
   linhas.forEach(l=>{
-    porTecnico[l.tecnico]=porTecnico[l.tecnico]||{funcao:l.funcao,total:0,obras:new Set()};
+    porTecnico[l.tecnico]=porTecnico[l.tecnico]||{funcao:l.funcao,cpf:l.cpf,total:0,obras:new Set()};
     porTecnico[l.tecnico].total+=l.valor;
     porTecnico[l.tecnico].obras.add(l.obra);
   });
-  return Object.entries(porTecnico).map(([nome,info])=>({nome,funcao:info.funcao,total:info.total,qtdObras:info.obras.size})).sort((a,b)=>b.total-a.total);
+  return Object.entries(porTecnico).map(([nome,info])=>({nome,funcao:info.funcao,cpf:info.cpf,total:info.total,qtdObras:info.obras.size})).sort((a,b)=>b.total-a.total);
 }
 function renderPremiacaoMes(){
   const competencia=document.getElementById('inp-mes-premiacao').value;
@@ -1642,9 +1666,9 @@ function renderPremiacaoMes(){
   const resumo=resumoPorTecnico(linhas);
   const totalGeral=linhas.reduce((a,l)=>a+l.valor,0);
   document.getElementById('resumo-premiacao-mes').innerHTML=resumo.length?
-    `<div style="font-size:.85rem;line-height:1.9;">`+resumo.map(r=>`<b>${escapeHtml(r.nome)}</b> <span class="reg R1">${escapeHtml(r.funcao)}</span> — ${brl(r.total)} · ${int(r.qtdObras)} obra(s)`).join('<br>')+`<br><b>Total geral do mês:</b> ${brl(totalGeral)}</div>`
+    `<div style="font-size:.85rem;line-height:1.9;">`+resumo.map(r=>`<b>${escapeHtml(r.nome)}</b> ${escapeHtml(r.cpf&&r.cpf!=='—'?'('+r.cpf+')':'')} <span class="reg R1">${escapeHtml(r.funcao)}</span> — ${brl(r.total)} · ${int(r.qtdObras)} obra(s)`).join('<br>')+`<br><b>Total geral do mês:</b> ${brl(totalGeral)}</div>`
     :`<div style="color:var(--texto-suave);font-size:.85rem;">Nenhum pagamento registrado para esta competência.</div>`;
-  document.getElementById('tbody-premiacao-mes').innerHTML=linhas.length?linhas.map(l=>`<tr><td>${escapeHtml(l.tecnico)}</td><td>${escapeHtml(l.funcao)}</td><td>${escapeHtml(l.obra)}</td><td>${escapeHtml(l.cliente)}</td><td class="num">${brl(l.valor)}</td><td>${escapeHtml(l.observacao)}</td></tr>`).join(''):`<tr><td colspan="6" style="padding:14px;color:var(--texto-suave);">Nenhum pagamento neste mês.</td></tr>`;
+  document.getElementById('tbody-premiacao-mes').innerHTML=linhas.length?linhas.map(l=>`<tr><td>${escapeHtml(l.tecnico)}</td><td>${escapeHtml(l.cpf)}</td><td>${escapeHtml(l.funcao)}</td><td>${escapeHtml(l.obra)}</td><td>${escapeHtml(l.cliente)}</td><td class="num">${brl(l.valor)}</td><td>${escapeHtml(l.observacao)}</td></tr>`).join(''):`<tr><td colspan="7" style="padding:14px;color:var(--texto-suave);">Nenhum pagamento neste mês.</td></tr>`;
 }
 document.getElementById('btn-premiacao-mes').addEventListener('click',()=>{
   const hoje=new Date();
@@ -1664,9 +1688,9 @@ document.getElementById('btn-exportar-excel-premiacao').addEventListener('click'
     await loadSheetJs();
     const resumo=resumoPorTecnico(linhas);
     const wb=XLSX.utils.book_new();
-    const wsDetalhe=XLSX.utils.json_to_sheet(linhas.map(l=>({Técnico:l.tecnico,Função:l.funcao,Obra:l.obra,Cliente:l.cliente,'Valor (R$)':l.valor,Observação:l.observacao})));
+    const wsDetalhe=XLSX.utils.json_to_sheet(linhas.map(l=>({Técnico:l.tecnico,CPF:l.cpf,Função:l.funcao,Obra:l.obra,Cliente:l.cliente,'Valor (R$)':l.valor,Observação:l.observacao})));
     XLSX.utils.book_append_sheet(wb,wsDetalhe,'Detalhado');
-    const wsResumo=XLSX.utils.json_to_sheet(resumo.map(r=>({Técnico:r.nome,Função:r.funcao,'Qtd. Obras':r.qtdObras,'Total (R$)':r.total})));
+    const wsResumo=XLSX.utils.json_to_sheet(resumo.map(r=>({Técnico:r.nome,CPF:r.cpf,Função:r.funcao,'Qtd. Obras':r.qtdObras,'Total (R$)':r.total})));
     XLSX.utils.book_append_sheet(wb,wsResumo,'Resumo por Técnico');
     XLSX.writeFile(wb,'premiacao_'+competencia+'.xlsx');
   }catch(e){

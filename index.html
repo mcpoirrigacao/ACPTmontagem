@@ -1728,9 +1728,28 @@ document.getElementById('btn-fechar-medicoes-obra').addEventListener('click',fec
 function outrasMedicoes(taskId){
   return medicoesEmEdicao.map((m,i)=>i===medicaoSelecionada?0:n(m.quantidades[taskId])).reduce((a,b)=>a+b,0);
 }
+/* Papel/índice de um pagamento — usa os campos estruturados quando existem;
+   para pagamentos antigos (sem esses campos), tenta inferir pela observação e pela função do técnico. */
+function papelDoPagamento(p){
+  if(p.papel)return p.papel;
+  const t=tecnicos.find(x=>x.id===(p.tecnicoIds||[])[0]);
+  return t?t.funcao:null;
+}
+function medicaoIndexDoPagamento(p){
+  if(p.medicaoIndex!=null)return p.medicaoIndex;
+  const m=/Medição (\d+)/.exec(p.observacao||'');
+  return m?Number(m[1])-1:null;
+}
+function pagamentoExiste(obra,medicaoIndex,papel){
+  return (obra.pagamentosPremiacao||[]).some(p=>medicaoIndexDoPagamento(p)===medicaoIndex&&papelDoPagamento(p)===papel);
+}
+function medicaoEstaPaga(obra,indice){
+  return pagamentoExiste(obra,indice,'Montador')||pagamentoExiste(obra,indice,'Auxiliar');
+}
 function renderAbasMedicao(){
+  const obra=obras.find(o=>o.id===obraMedicoesAtual);
   document.getElementById('abas-medicao').innerHTML=
-    medicoesEmEdicao.map((m,i)=>`<button type="button" class="btn ${i===medicaoSelecionada?'primary':'ghost'} small" data-med="${i}">Medição ${i+1}</button>`).join('')+
+    medicoesEmEdicao.map((m,i)=>`<button type="button" class="btn ${i===medicaoSelecionada?'primary':'ghost'} small" data-med="${i}">Medição ${i+1}${obra&&medicaoEstaPaga(obra,i)?' 🔒':''}</button>`).join('')+
     `<button type="button" class="btn ghost small" id="btn-add-medicao">+ Nova Medição</button>`+
     (medicoesEmEdicao.length>1?`<button type="button" class="btn danger small" id="btn-rem-medicao">Remover esta medição</button>`:'');
   document.querySelectorAll('#abas-medicao [data-med]').forEach(b=>b.addEventListener('click',()=>{medicaoSelecionada=+b.dataset.med;renderAbasMedicao();renderGridMedicao();}));
@@ -1742,6 +1761,7 @@ function renderAbasMedicao(){
   });
   const btnRem=document.getElementById('btn-rem-medicao');
   if(btnRem)btnRem.addEventListener('click',()=>{
+    if(obra&&medicaoEstaPaga(obra,medicaoSelecionada)){toast('Esta medição já tem pagamento registrado — não pode ser removida.');return;}
     const temDados=Object.values(medicoesEmEdicao[medicaoSelecionada].quantidades).some(v=>n(v)>0);
     if(temDados&&!confirm('Esta medição tem quantidades preenchidas. Remover mesmo assim?'))return;
     medicoesEmEdicao.splice(medicaoSelecionada,1);
@@ -1755,34 +1775,47 @@ function renderGridMedicao(){
   const tarefasPlanejadas=obra.tarefas||{};
   const idsAtivos=tarefasTmo.filter(t=>n(tarefasPlanejadas[t.id])>0);
   const tbody=document.getElementById('tbody-medicao');
+  const travada=medicaoEstaPaga(obra,medicaoSelecionada);
   tbody.innerHTML=idsAtivos.length?idsAtivos.map(t=>{
     const planejado=n(tarefasPlanejadas[t.id]);
     const outras=outrasMedicoes(t.id);
     const nesta=medicoesEmEdicao[medicaoSelecionada].quantidades[t.id];
     const restante=planejado-outras-n(nesta);
-    return `<tr><td>${escapeHtml(t.desc)}</td><td class="num">${planejado}</td><td class="num">${outras}</td><td><input type="number" step="any" data-task-med="${escapeHtml(t.id)}" value="${nesta==null?'':nesta}" style="width:80px;text-align:right;"></td><td class="num cel-restante" style="color:${restante<0?'var(--erro)':'inherit'};">${restante}</td></tr>`;
+    return `<tr><td>${escapeHtml(t.desc)}</td><td class="num">${planejado}</td><td class="num">${outras}</td><td><input type="number" step="any" data-task-med="${escapeHtml(t.id)}" value="${nesta==null?'':nesta}" style="width:80px;text-align:right;"${travada?' disabled':''}></td><td class="num cel-restante" style="color:${restante<0?'var(--erro)':'inherit'};">${restante}</td></tr>`;
   }).join(''):`<tr><td colspan="5" style="padding:14px;color:var(--texto-suave);">Nenhuma tarefa com quantidade planejada nesta obra.</td></tr>`;
-  tbody.querySelectorAll('[data-task-med]').forEach(el=>{
-    el.addEventListener('input',()=>{
-      const id=el.dataset.taskMed;
-      medicoesEmEdicao[medicaoSelecionada].quantidades[id]=el.value===''?undefined:Number(el.value);
-      const planejado=n(tarefasPlanejadas[id]);
-      const outras=outrasMedicoes(id);
-      const restante=planejado-outras-n(medicoesEmEdicao[medicaoSelecionada].quantidades[id]);
-      const cel=el.closest('tr').querySelector('.cel-restante');
-      cel.textContent=restante;cel.style.color=restante<0?'var(--erro)':'inherit';
-      renderTotaisMedicao();
+  if(!travada){
+    tbody.querySelectorAll('[data-task-med]').forEach(el=>{
+      el.addEventListener('input',()=>{
+        const id=el.dataset.taskMed;
+        medicoesEmEdicao[medicaoSelecionada].quantidades[id]=el.value===''?undefined:Number(el.value);
+        const planejado=n(tarefasPlanejadas[id]);
+        const outras=outrasMedicoes(id);
+        const restante=planejado-outras-n(medicoesEmEdicao[medicaoSelecionada].quantidades[id]);
+        const cel=el.closest('tr').querySelector('.cel-restante');
+        cel.textContent=restante;cel.style.color=restante<0?'var(--erro)':'inherit';
+        renderTotaisMedicao();
+      });
     });
-  });
+  }
   renderTotaisMedicao();
 }
 function renderTotaisMedicao(){
   const obra=obras.find(o=>o.id===obraMedicoesAtual);
   if(!obra)return;
   const calc=calcularPremiacaoDados(medicoesEmEdicao[medicaoSelecionada].quantidades,obra.precosImportados);
-  document.getElementById('totais-medicao').innerHTML=`<b>Medição ${medicaoSelecionada+1}</b> — Valor Montador: ${brl(calc.laborMont)} · Valor Auxiliar: ${brl(calc.laborAux)} · TMO: ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h`;
+  const pagoMontador=pagamentoExiste(obra,medicaoSelecionada,'Montador');
+  const pagoAuxiliar=pagamentoExiste(obra,medicaoSelecionada,'Auxiliar');
+  const travada=pagoMontador||pagoAuxiliar;
+  document.getElementById('totais-medicao').innerHTML=`<b>Medição ${medicaoSelecionada+1}</b> — Valor Montador: ${brl(calc.laborMont)} · Valor Auxiliar: ${brl(calc.laborAux)} · TMO: ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h`+(travada?' <span class="reg R2">quantidades travadas — já paga</span>':'');
   document.getElementById('valor-pagar-montador').textContent=brl(calc.laborMont);
   document.getElementById('valor-pagar-auxiliar').textContent=brl(calc.laborAux);
+  const btnMont=document.getElementById('btn-pagar-montador-medicao'),btnAux=document.getElementById('btn-pagar-auxiliar-medicao');
+  const selMont=document.getElementById('sel-tecnico-montador-medicao'),selAux=document.getElementById('sel-tecnico-auxiliar-medicao');
+  const dataMont=document.getElementById('data-pagamento-montador-medicao'),dataAux=document.getElementById('data-pagamento-auxiliar-medicao');
+  btnMont.disabled=pagoMontador;btnMont.textContent=pagoMontador?'✓ Montador já pago nesta medição':'Registrar Pagamento';
+  selMont.disabled=pagoMontador;dataMont.disabled=pagoMontador;
+  btnAux.disabled=pagoAuxiliar;btnAux.textContent=pagoAuxiliar?'✓ Auxiliar já pago nesta medição':'Registrar Pagamento';
+  selAux.disabled=pagoAuxiliar;dataAux.disabled=pagoAuxiliar;
 }
 document.getElementById('btn-salvar-medicao').addEventListener('click',async()=>{
   const obra=obras.find(o=>o.id===obraMedicoesAtual);
@@ -1797,6 +1830,7 @@ document.getElementById('btn-salvar-medicao').addEventListener('click',async()=>
 async function registrarPagamentoMedicao(papel){
   const obra=obras.find(o=>o.id===obraMedicoesAtual);
   if(!obra)return;
+  if(pagamentoExiste(obra,medicaoSelecionada,papel)){toast('Esta medição já teve o pagamento de '+papel.toLowerCase()+' registrado — não é possível repetir.');return;}
   const selId=papel==='Montador'?'sel-tecnico-montador-medicao':'sel-tecnico-auxiliar-medicao';
   const dataId=papel==='Montador'?'data-pagamento-montador-medicao':'data-pagamento-auxiliar-medicao';
   const tecId=document.getElementById(selId).value;
@@ -1806,12 +1840,13 @@ async function registrarPagamentoMedicao(papel){
   const valor=papel==='Montador'?calc.laborMont:calc.laborAux;
   if(!valor||valor<=0){toast('O valor desta medição está zerado — preencha as quantidades primeiro.');return;}
   const competencia=data?data.slice(0,7):new Date().toISOString().slice(0,7);
+  obra.medicoes=medicoesEmEdicao.map(m=>({quantidades:Object.assign({},m.quantidades)}));
   obra.pagamentosPremiacao=obra.pagamentosPremiacao||[];
-  obra.pagamentosPremiacao.push({id:gerarId('pg'),competencia,valor:Math.round(valor*100)/100,tecnicoIds:[tecId],observacao:'Medição '+(medicaoSelecionada+1)});
+  obra.pagamentosPremiacao.push({id:gerarId('pg'),competencia,valor:Math.round(valor*100)/100,tecnicoIds:[tecId],observacao:'Medição '+(medicaoSelecionada+1),medicaoIndex:medicaoSelecionada,papel});
   const statusEl=document.getElementById('status-medicoes-obra');
   statusEl.textContent='⏳ salvando pagamento…';
   const ok=await salvarColecao('obras');
-  if(ok){saveCache();statusEl.textContent='✓ pagamento de '+papel.toLowerCase()+' registrado.';toast('Pagamento registrado.');renderAll();}
+  if(ok){saveCache();statusEl.textContent='✓ pagamento de '+papel.toLowerCase()+' registrado — quantidades desta medição foram travadas.';toast('Pagamento registrado.');renderAbasMedicao();renderGridMedicao();}
   else{obra.pagamentosPremiacao.pop();statusEl.textContent='⚠ não foi possível registrar o pagamento.';}
 }
 document.getElementById('btn-pagar-montador-medicao').addEventListener('click',()=>registrarPagamentoMedicao('Montador'));

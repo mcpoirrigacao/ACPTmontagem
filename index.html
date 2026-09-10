@@ -439,16 +439,17 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <div id="totais-medicao" style="font-size:.9rem;margin:10px 0;padding:10px;background:var(--areia);border-radius:6px;"></div>
     <div class="card" style="padding:14px;">
       <h3 style="margin-bottom:10px;">Registrar Pagamento desta Medição</h3>
+      <p class="nota" style="margin:0 0 10px;">Pode marcar mais de um técnico se o pagamento for dividido/feito em conjunto — o lançamento gerado lista todos os nomes.</p>
       <div style="display:flex;gap:16px;flex-wrap:wrap;">
         <div style="flex:1;min-width:220px;">
           <div style="font-size:.72rem;color:var(--texto-suave);text-transform:uppercase;margin-bottom:4px;">Montador — <span id="valor-pagar-montador">R$ 0,00</span></div>
-          <select id="sel-tecnico-montador-medicao" style="width:100%;"></select>
+          <div id="check-tecnicos-montador-medicao" style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;border:1px solid var(--borda);border-radius:4px;padding:8px;max-height:110px;overflow-y:auto;"></div>
           <input type="date" id="data-pagamento-montador-medicao" style="margin-top:6px;width:100%;">
           <button class="btn ghost small" id="btn-pagar-montador-medicao" type="button" style="margin-top:6px;">Registrar Pagamento</button>
         </div>
         <div style="flex:1;min-width:220px;">
           <div style="font-size:.72rem;color:var(--texto-suave);text-transform:uppercase;margin-bottom:4px;">Auxiliar — <span id="valor-pagar-auxiliar">R$ 0,00</span></div>
-          <select id="sel-tecnico-auxiliar-medicao" style="width:100%;"></select>
+          <div id="check-tecnicos-auxiliar-medicao" style="display:flex;flex-direction:column;gap:4px;font-size:.82rem;border:1px solid var(--borda);border-radius:4px;padding:8px;max-height:110px;overflow-y:auto;"></div>
           <input type="date" id="data-pagamento-auxiliar-medicao" style="margin-top:6px;width:100%;">
           <button class="btn ghost small" id="btn-pagar-auxiliar-medicao" type="button" style="margin-top:6px;">Registrar Pagamento</button>
         </div>
@@ -1179,6 +1180,7 @@ function campoHtmlGenerico(campo,valorAtual){
         `<input type="date" id="${idc}__inicio" title="Início da pausa">`+
         `<span class="nota">até</span>`+
         `<input type="date" id="${idc}__fim" title="Retomada — deixe em branco se ainda pausada">`+
+        `<input type="text" id="${idc}__obs" placeholder="Motivo da pausa (opcional)" style="flex:1;min-width:160px;">`+
         `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar pausa</button>`+
       `</div>`+
       `<span class="nota">Cada pausa concluída empurra a data prevista de conclusão pelo tempo que durou.</span>`;
@@ -1265,7 +1267,35 @@ function renderPremiacaoEditor(){
       const nomes=(p.tecnicoIds||[]).map(id=>{const t=tecnicos.find(x=>x.id===id);return t?t.nome:'?';}).join(', ');
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(p.competencia||'—')} · ${brl(n(p.valor))} · ${escapeHtml(nomes||'—')}${p.observacao?' · '+escapeHtml(p.observacao):''}</span><button class="btn danger small" data-rem-pagamento="${i}" type="button">×</button></div>`;
     }).join(''):`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhum pagamento registrado.</div>`;
-    lista.querySelectorAll('[data-rem-pagamento]').forEach(b=>{b.onclick=()=>{pagamentosEmEdicao.splice(+b.dataset.remPagamento,1);renderPremiacaoEditor();};});
+    lista.querySelectorAll('[data-rem-pagamento]').forEach(b=>{
+      b.onclick=async()=>{
+        const idx=+b.dataset.remPagamento;
+        const pagamento=pagamentosEmEdicao[idx];
+        const obra=modalEditandoId?obras.find(o=>o.id===modalEditandoId):null;
+        const jaSalvo=!!(obra&&obra.pagamentosPremiacao&&obra.pagamentosPremiacao.some(p=>p.id===pagamento.id));
+        if(jaSalvo){
+          const lancVinculado=lancamentos.find(l=>l.pagamentoId===pagamento.id);
+          if(!confirm('Excluir este pagamento?'+(lancVinculado?' O lançamento de Premiação criado junto com ele também será excluído.':'')))return;
+          const statusEl=document.getElementById('status-modal-registro');
+          statusEl.textContent='⏳ excluindo…';
+          const pagamentosAntes=obra.pagamentosPremiacao;
+          obra.pagamentosPremiacao=pagamentosAntes.filter(p=>p.id!==pagamento.id);
+          const lancamentosAntes=lancamentos;
+          if(lancVinculado)lancamentos=lancamentos.filter(l=>l.id!==lancVinculado.id);
+          const okObra=await salvarColecao('obras');
+          const okLanc=lancVinculado?await salvarColecao('lancamentos'):true;
+          if(okObra&&okLanc){
+            saveCache();statusEl.textContent='';toast('Pagamento excluído.'+(lancVinculado?' Lançamento vinculado também removido.':''));
+          }else{
+            obra.pagamentosPremiacao=pagamentosAntes;lancamentos=lancamentosAntes;
+            statusEl.textContent='⚠ não foi possível excluir. Tente de novo.';
+            return;
+          }
+        }
+        pagamentosEmEdicao.splice(idx,1);
+        renderPremiacaoEditor();
+      };
+    });
   }
 }
 function renderListaPausasEditor(){
@@ -1276,8 +1306,9 @@ function renderListaPausasEditor(){
     cont.innerHTML=pausasEmEdicao.map((p,i)=>{
       const aberta=!p.fim;
       const texto=aberta?`${fmtData(p.inicio)} → em andamento`:`${fmtData(p.inicio)} → ${fmtData(p.fim)}`;
+      const obsTexto=p.observacao?` · ${escapeHtml(p.observacao)}`:'';
       const btnRetomar=aberta?`<button class="btn ghost small" data-retomar-pausa="${i}" type="button">Retomar hoje</button>`:'';
-      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(texto)}</span>${btnRetomar}<button class="btn danger small" data-rem-pausa="${i}" type="button">×</button></div>`;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;"><span style="flex:1;">${escapeHtml(texto)}${obsTexto}</span>${btnRetomar}<button class="btn danger small" data-rem-pausa="${i}" type="button">×</button></div>`;
     }).join('');
     cont.querySelectorAll('[data-rem-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao.splice(+b.dataset.remPausa,1);renderListaPausasEditor();};});
     cont.querySelectorAll('[data-retomar-pausa]').forEach(b=>{b.onclick=()=>{pausasEmEdicao[+b.dataset.retomarPausa].fim=new Date().toISOString().slice(0,10);renderListaPausasEditor();};});
@@ -1369,10 +1400,12 @@ function abrirModal(entidade,id,seed){
     if(btnAdd)btnAdd.addEventListener('click',()=>{
       const ini=document.getElementById('campo-modal-pausas__inicio').value;
       const fim=document.getElementById('campo-modal-pausas__fim').value;
+      const obs=document.getElementById('campo-modal-pausas__obs').value;
       if(!ini){toast('Informe a data de início da pausa.');return;}
-      pausasEmEdicao.push({inicio:ini,fim:fim||null});
+      pausasEmEdicao.push({inicio:ini,fim:fim||null,observacao:obs||''});
       document.getElementById('campo-modal-pausas__inicio').value='';
       document.getElementById('campo-modal-pausas__fim').value='';
+      document.getElementById('campo-modal-pausas__obs').value='';
       renderListaPausasEditor();
     });
     const elIni=document.getElementById('campo-modal-dataInicio');
@@ -1606,6 +1639,7 @@ function mapearOrcamentoParaObra(registro){
   const info=(registro.data&&registro.data.info)||{};
   const precos=(registro.data&&registro.data.precos)||{};
   const servicos=(registro.data&&registro.data.servicos)||{};
+  const equipe=(registro.data&&registro.data.equipe)||{};
   const tasks=(registro.data&&registro.data.tasks)||{};
   const partes=[];
   if(info.vendedor)partes.push('Vendedor: '+info.vendedor);
@@ -1620,6 +1654,7 @@ function mapearOrcamentoParaObra(registro){
     nomeCliente:(info.cliente||'').trim(),
     nomeObra:(info.obra||'').trim()||'Obra Principal',
     valorNegociado:Math.round(n(registro.valorFinal)*100)/100,
+    prazoDias:equipe.prazoManual!=null&&equipe.prazoManual!==''?n(equipe.prazoManual):null,
     descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):''),
     tarefas:tarefasImportadas,
     qtdLances:sugestoes.qtdLances,
@@ -1717,8 +1752,8 @@ function abrirMedicoesObra(obraId){
   document.getElementById('titulo-medicoes-obra').textContent=(c?c.nome:'?')+' — '+obra.nome;
   document.getElementById('status-medicoes-obra').textContent='';
   const montadores=tecnicos.filter(t=>t.funcao==='Montador'),auxiliares=tecnicos.filter(t=>t.funcao==='Auxiliar');
-  document.getElementById('sel-tecnico-montador-medicao').innerHTML='<option value="">Selecione o montador</option>'+montadores.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)}</option>`).join('');
-  document.getElementById('sel-tecnico-auxiliar-medicao').innerHTML='<option value="">Selecione o auxiliar</option>'+auxiliares.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)}</option>`).join('');
+  document.getElementById('check-tecnicos-montador-medicao').innerHTML=montadores.length?montadores.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico-med="montador">${escapeHtml(t.nome)}</label>`).join(''):'<span class="nota">Nenhum montador cadastrado.</span>';
+  document.getElementById('check-tecnicos-auxiliar-medicao').innerHTML=auxiliares.length?auxiliares.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico-med="auxiliar">${escapeHtml(t.nome)}</label>`).join(''):'<span class="nota">Nenhum auxiliar cadastrado.</span>';
   renderAbasMedicao();
   renderGridMedicao();
   document.getElementById('overlay-medicoes-obra').style.display='flex';
@@ -1810,12 +1845,13 @@ function renderTotaisMedicao(){
   document.getElementById('valor-pagar-montador').textContent=brl(calc.laborMont);
   document.getElementById('valor-pagar-auxiliar').textContent=brl(calc.laborAux);
   const btnMont=document.getElementById('btn-pagar-montador-medicao'),btnAux=document.getElementById('btn-pagar-auxiliar-medicao');
-  const selMont=document.getElementById('sel-tecnico-montador-medicao'),selAux=document.getElementById('sel-tecnico-auxiliar-medicao');
   const dataMont=document.getElementById('data-pagamento-montador-medicao'),dataAux=document.getElementById('data-pagamento-auxiliar-medicao');
   btnMont.disabled=pagoMontador;btnMont.textContent=pagoMontador?'✓ Montador já pago nesta medição':'Registrar Pagamento';
-  selMont.disabled=pagoMontador;dataMont.disabled=pagoMontador;
+  dataMont.disabled=pagoMontador;
+  document.querySelectorAll('#check-tecnicos-montador-medicao [data-check-tecnico-med]').forEach(el=>el.disabled=pagoMontador);
   btnAux.disabled=pagoAuxiliar;btnAux.textContent=pagoAuxiliar?'✓ Auxiliar já pago nesta medição':'Registrar Pagamento';
-  selAux.disabled=pagoAuxiliar;dataAux.disabled=pagoAuxiliar;
+  dataAux.disabled=pagoAuxiliar;
+  document.querySelectorAll('#check-tecnicos-auxiliar-medicao [data-check-tecnico-med]').forEach(el=>el.disabled=pagoAuxiliar);
 }
 document.getElementById('btn-salvar-medicao').addEventListener('click',async()=>{
   const obra=obras.find(o=>o.id===obraMedicoesAtual);
@@ -1827,27 +1863,48 @@ document.getElementById('btn-salvar-medicao').addEventListener('click',async()=>
   if(ok){saveCache();statusEl.textContent='✓ medição salva.';renderAll();}
   else statusEl.textContent='⚠ não foi possível salvar.';
 });
+function juntarNomes(nomes){
+  if(!nomes.length)return '';
+  if(nomes.length===1)return nomes[0];
+  if(nomes.length===2)return nomes[0]+' e '+nomes[1];
+  return nomes.slice(0,-1).join(', ')+' e '+nomes[nomes.length-1];
+}
 async function registrarPagamentoMedicao(papel){
   const obra=obras.find(o=>o.id===obraMedicoesAtual);
   if(!obra)return;
   if(pagamentoExiste(obra,medicaoSelecionada,papel)){toast('Esta medição já teve o pagamento de '+papel.toLowerCase()+' registrado — não é possível repetir.');return;}
-  const selId=papel==='Montador'?'sel-tecnico-montador-medicao':'sel-tecnico-auxiliar-medicao';
+  const contId=papel==='Montador'?'check-tecnicos-montador-medicao':'check-tecnicos-auxiliar-medicao';
   const dataId=papel==='Montador'?'data-pagamento-montador-medicao':'data-pagamento-auxiliar-medicao';
-  const tecId=document.getElementById(selId).value;
+  const tecIds=Array.from(document.querySelectorAll('#'+contId+' [data-check-tecnico-med]:checked')).map(el=>el.value);
   const data=document.getElementById(dataId).value;
-  if(!tecId){toast('Selecione o '+papel.toLowerCase()+' que vai receber.');return;}
+  if(!tecIds.length){toast('Marque ao menos um '+papel.toLowerCase()+' que vai receber.');return;}
   const calc=calcularPremiacaoDados(medicoesEmEdicao[medicaoSelecionada].quantidades,obra.precosImportados);
   const valor=papel==='Montador'?calc.laborMont:calc.laborAux;
   if(!valor||valor<=0){toast('O valor desta medição está zerado — preencha as quantidades primeiro.');return;}
-  const competencia=data?data.slice(0,7):new Date().toISOString().slice(0,7);
+  const dataFinal=data||new Date().toISOString().slice(0,10);
+  const competencia=dataFinal.slice(0,7);
+  const valorArredondado=Math.round(valor*100)/100;
+  const nomesTecnicos=tecIds.map(id=>{const t=tecnicos.find(x=>x.id===id);return t?t.nome:'?';});
   obra.medicoes=medicoesEmEdicao.map(m=>({quantidades:Object.assign({},m.quantidades)}));
   obra.pagamentosPremiacao=obra.pagamentosPremiacao||[];
-  obra.pagamentosPremiacao.push({id:gerarId('pg'),competencia,valor:Math.round(valor*100)/100,tecnicoIds:[tecId],observacao:'Medição '+(medicaoSelecionada+1),medicaoIndex:medicaoSelecionada,papel});
+  const novoPagamento={id:gerarId('pg'),competencia,valor:valorArredondado,tecnicoIds:tecIds,observacao:'Medição '+(medicaoSelecionada+1),medicaoIndex:medicaoSelecionada,papel};
+  obra.pagamentosPremiacao.push(novoPagamento);
+  const novoLancamento={id:gerarId('l'),obraId:obra.id,tipo:'SAIDA',categoria:'PREMIAÇÃO',valor:valorArredondado,quantidade:1,data:dataFinal,descricao:'Premiação '+juntarNomes(nomesTecnicos),criadoEm:new Date().toISOString(),pagamentoId:novoPagamento.id};
+  lancamentos.push(novoLancamento);
+  if(!(listasConfig.categorias||[]).includes('PREMIAÇÃO')){listasConfig.categorias=listasConfig.categorias||[];listasConfig.categorias.push('PREMIAÇÃO');}
   const statusEl=document.getElementById('status-medicoes-obra');
   statusEl.textContent='⏳ salvando pagamento…';
-  const ok=await salvarColecao('obras');
-  if(ok){saveCache();statusEl.textContent='✓ pagamento de '+papel.toLowerCase()+' registrado — quantidades desta medição foram travadas.';toast('Pagamento registrado.');renderAbasMedicao();renderGridMedicao();}
-  else{obra.pagamentosPremiacao.pop();statusEl.textContent='⚠ não foi possível registrar o pagamento.';}
+  const okObra=await salvarColecao('obras');
+  const okLanc=okObra?await salvarColecao('lancamentos'):false;
+  if(okObra)await salvarListas();
+  if(okObra&&okLanc){
+    saveCache();statusEl.textContent='✓ pagamento registrado, lançamento criado e quantidades travadas.';toast('Pagamento registrado.');renderAbasMedicao();renderGridMedicao();
+  }else{
+    obra.pagamentosPremiacao.pop();
+    lancamentos.pop();
+    if(okObra)await salvarColecao('obras');
+    statusEl.textContent='⚠ não foi possível registrar o pagamento por completo. Tente de novo.';
+  }
 }
 document.getElementById('btn-pagar-montador-medicao').addEventListener('click',()=>registrarPagamentoMedicao('Montador'));
 document.getElementById('btn-pagar-auxiliar-medicao').addEventListener('click',()=>registrarPagamentoMedicao('Auxiliar'));
@@ -1884,25 +1941,32 @@ function mostrarPreviewOrcamento(item){
   const clienteExistente=clientes.find(c=>normNome(c.nome)===normNome(mapa.nomeCliente));
   const calc=calcularPremiacaoDados(mapa.tarefas,mapa.precosImportados);
   const prev=document.getElementById('preview-orcamento');
+  const clientesOrdenados=[...clientes].sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const seletorCliente=!clienteExistente?`<div class="field" style="margin-top:8px;"><label>Ou associar a um cliente já cadastrado</label><select id="sel-cliente-existente-orc"><option value="">— Criar novo cliente "${escapeHtml(mapa.nomeCliente)}" —</option>${clientesOrdenados.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('')}</select></div>`:'';
   prev.innerHTML=`
     <div style="font-size:.78rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:8px;">Prévia — confira antes de usar</div>
     <div style="font-size:.85rem;line-height:1.8;">
       <b>Cliente:</b> ${escapeHtml(mapa.nomeCliente||'—')} ${mapa.nomeCliente?(clienteExistente?'<span class="reg R1">já cadastrado</span>':'<span class="reg R2">novo — será criado</span>'):''}<br>
       <b>Obra:</b> ${escapeHtml(mapa.nomeObra)}<br>
-      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}<br>
+      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}${mapa.prazoDias?` · <b>Prazo:</b> ${int(mapa.prazoDias)} dias`:''}<br>
       <b>Descrição sugerida:</b> ${escapeHtml(mapa.descricao)}<br>
       <b>QTD Lances:</b> ${int(mapa.qtdLances)} · <b>QTD Bombeamentos:</b> ${int(mapa.qtdBombeamentos)} · <b>Adutora:</b> ${int(mapa.adutora)} m<br>
       <b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h ·
       <b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}
     </div>
-    <p class="nota" style="margin:10px 0;">Categoria, Regional e Data de Início não vêm do orçamento — preencha depois de abrir o cadastro. Lances/Bombeamentos/Adutora vêm sugeridos das tarefas — pode ajustar à mão depois. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
+    ${seletorCliente}
+    <p class="nota" style="margin:10px 0;">Categoria e Regional não vêm do orçamento — preencha depois de abrir o cadastro. Lances/Bombeamentos/Adutora vêm sugeridos das tarefas — pode ajustar à mão depois. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
     <button class="btn primary small" id="btn-usar-orcamento" type="button">Usar estes dados</button>
     <span id="status-usar-orcamento" style="font-size:.78rem;color:var(--texto-suave);margin-left:8px;"></span>
   `;
   prev.style.display='block';
   document.getElementById('btn-usar-orcamento').addEventListener('click',async()=>{
     const statusEl=document.getElementById('status-usar-orcamento');
-    let cliente=clientes.find(c=>normNome(c.nome)===normNome(mapa.nomeCliente));
+    let cliente=clienteExistente;
+    const selExistente=document.getElementById('sel-cliente-existente-orc');
+    if(!cliente&&selExistente&&selExistente.value){
+      cliente=clientes.find(c=>c.id===selExistente.value);
+    }
     if(!cliente&&mapa.nomeCliente){
       statusEl.textContent='⏳ criando cliente…';
       cliente={id:gerarId('c'),nome:mapa.nomeCliente,regional:'',contato:'',observacoes:'',criadoEm:new Date().toISOString()};
@@ -1912,7 +1976,7 @@ function mostrarPreviewOrcamento(item){
       saveCache();
     }
     document.getElementById('overlay-importar-orcamento').style.display='none';
-    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
+    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,prazoDias:mapa.prazoDias,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
   });
 }
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}

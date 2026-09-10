@@ -1942,7 +1942,11 @@ function mostrarPreviewOrcamento(item){
   const calc=calcularPremiacaoDados(mapa.tarefas,mapa.precosImportados);
   const prev=document.getElementById('preview-orcamento');
   const clientesOrdenados=[...clientes].sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
-  const seletorCliente=!clienteExistente?`<div class="field" style="margin-top:8px;"><label>Ou associar a um cliente já cadastrado</label><select id="sel-cliente-existente-orc"><option value="">— Criar novo cliente "${escapeHtml(mapa.nomeCliente)}" —</option>${clientesOrdenados.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('')}</select></div>`:'';
+  const regionaisDisponiveis=listasConfig.regionais||[];
+  const seletorCliente=!clienteExistente?`<div class="field" style="margin-top:8px;"><label>Ou associar a um cliente já cadastrado</label><select id="sel-cliente-existente-orc"><option value="">— Criar novo cliente "${escapeHtml(mapa.nomeCliente)}" —</option>${clientesOrdenados.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('')}</select></div>`+
+    `<div class="field" style="margin-top:8px;" id="bloco-regional-novo-cliente-orc"><label>Regional do novo cliente *</label>`+
+    (regionaisDisponiveis.length?`<select id="sel-regional-novo-cliente-orc"><option value="">Selecione a regional</option>${regionaisDisponiveis.map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select>`:`<span class="nota">Nenhuma regional cadastrada em Parâmetros — o cliente será criado sem regional.</span>`)+
+    `</div>`:'';
   prev.innerHTML=`
     <div style="font-size:.78rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:8px;">Prévia — confira antes de usar</div>
     <div style="font-size:.85rem;line-height:1.8;">
@@ -1955,11 +1959,16 @@ function mostrarPreviewOrcamento(item){
       <b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}
     </div>
     ${seletorCliente}
-    <p class="nota" style="margin:10px 0;">Categoria e Regional não vêm do orçamento — preencha depois de abrir o cadastro. Lances/Bombeamentos/Adutora vêm sugeridos das tarefas — pode ajustar à mão depois. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
+    <p class="nota" style="margin:10px 0;">Categoria não vem do orçamento — preencha depois de abrir o cadastro. Lances/Bombeamentos/Adutora vêm sugeridos das tarefas — pode ajustar à mão depois. O TMO/premiação usa a tabela de Tarefas de Montagem de Parâmetros.</p>
     <button class="btn primary small" id="btn-usar-orcamento" type="button">Usar estes dados</button>
     <span id="status-usar-orcamento" style="font-size:.78rem;color:var(--texto-suave);margin-left:8px;"></span>
   `;
   prev.style.display='block';
+  const selExistenteEl=document.getElementById('sel-cliente-existente-orc');
+  const blocoRegional=document.getElementById('bloco-regional-novo-cliente-orc');
+  if(selExistenteEl&&blocoRegional){
+    selExistenteEl.addEventListener('change',()=>{blocoRegional.style.display=selExistenteEl.value?'none':'';});
+  }
   document.getElementById('btn-usar-orcamento').addEventListener('click',async()=>{
     const statusEl=document.getElementById('status-usar-orcamento');
     let cliente=clienteExistente;
@@ -1968,8 +1977,11 @@ function mostrarPreviewOrcamento(item){
       cliente=clientes.find(c=>c.id===selExistente.value);
     }
     if(!cliente&&mapa.nomeCliente){
+      const selRegional=document.getElementById('sel-regional-novo-cliente-orc');
+      const regionalEscolhida=selRegional?selRegional.value:'';
+      if(selRegional&&!regionalEscolhida){statusEl.textContent='⚠ escolha a Regional do novo cliente antes de continuar.';return;}
       statusEl.textContent='⏳ criando cliente…';
-      cliente={id:gerarId('c'),nome:mapa.nomeCliente,regional:'',contato:'',observacoes:'',criadoEm:new Date().toISOString()};
+      cliente={id:gerarId('c'),nome:mapa.nomeCliente,regional:regionalEscolhida,contato:'',observacoes:'',criadoEm:new Date().toISOString()};
       clientes.push(cliente);
       const ok=await salvarColecao('clientes');
       if(!ok){clientes.pop();statusEl.textContent='⚠ não foi possível criar o cliente. Tente de novo.';return;}

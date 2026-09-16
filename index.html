@@ -239,6 +239,15 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
   <section class="pane" id="pane-agenda">
     <h2 class="pane-title">Agenda</h2>
     <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status. Períodos de pausa aparecem em cinza sólido, e obras atrasadas continuam aparecendo até serem concluídas.</p>
+    <div class="card" id="card-obras-pendentes" style="display:none;">
+      <h3>Obras Pendentes <span class="h3-side">ainda não iniciadas</span></h3>
+      <div class="tablewrap">
+        <table class="dt">
+          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Data de Início</th><th class="r">Dias entre negociação e início</th></tr></thead>
+          <tbody id="tbody-obras-pendentes"></tbody>
+        </table>
+      </div>
+    </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn ghost small" id="btn-agenda-ant" type="button">‹ Mês anterior</button>
       <h3 id="titulo-agenda" style="margin:0;font-family:var(--fonte-titulo);color:var(--azul-escuro);min-width:160px;text-align:center;"></h3>
@@ -866,7 +875,43 @@ function obrasNoIntervalo(){
     return {obra:o,cliente:clientePorId(o.clienteId),inicio,fim};
   }).filter(Boolean);
 }
+function diasNegociacaoAteInicio(obra){
+  if(!obra.dataNegociacao||!obra.dataInicio)return null;
+  const dn=new Date(obra.dataNegociacao),di=new Date(obra.dataInicio);
+  if(isNaN(dn)||isNaN(di))return null;
+  const dnZero=new Date(dn.getFullYear(),dn.getMonth(),dn.getDate());
+  const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
+  return Math.round((diZero.getTime()-dnZero.getTime())/86400000);
+}
+function obraEhPendente(obra){
+  if(obra.concluida)return false;
+  if(!obra.dataInicio)return true;
+  const di=new Date(obra.dataInicio);
+  if(isNaN(di))return true;
+  const hoje=new Date();const hojeZero=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
+  return diZero>=hojeZero;
+}
+function renderObrasPendentes(){
+  const card=document.getElementById('card-obras-pendentes');
+  const pendentes=[...obras].filter(obraEhPendente).sort((a,b)=>{
+    if(!a.dataInicio&&!b.dataInicio)return 0;
+    if(!a.dataInicio)return 1;
+    if(!b.dataInicio)return -1;
+    return new Date(a.dataInicio)-new Date(b.dataInicio);
+  });
+  if(!pendentes.length){card.style.display='none';return;}
+  document.getElementById('tbody-obras-pendentes').innerHTML=pendentes.map(o=>{
+    const c=clientePorId(o.clienteId);
+    const faltaData=!o.dataNegociacao||!o.dataInicio;
+    const dias=diasNegociacaoAteInicio(o);
+    const textoDias=faltaData?'preencher data':int(dias)+' dia(s)';
+    return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${o.dataNegociacao?fmtData(o.dataNegociacao):'—'}</td><td>${o.dataInicio?fmtData(o.dataInicio):'—'}</td><td class="num" style="${faltaData?'color:var(--texto-suave);font-style:italic;':''}">${textoDias}</td></tr>`;
+  }).join('');
+  card.style.display='';
+}
 function renderAgenda(){
+  renderObrasPendentes();
   const nomesMes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   document.getElementById('titulo-agenda').textContent=nomesMes[agendaMes]+' de '+agendaAno;
   const primeiroDiaSemana=new Date(agendaAno,agendaMes,1).getDay();
@@ -1129,6 +1174,7 @@ const ESQUEMAS={
     {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor',largo:true},
 
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number',secaoAntes:'Financeiro'},
+    {chave:'dataNegociacao',label:'Data da Negociação',tipo:'date'},
 
     {chave:'qtdLances',label:'QTD Lances',tipo:'number',secaoAntes:'Métricas Técnicas'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
@@ -1669,6 +1715,7 @@ function mapearOrcamentoParaObra(registro){
     nomeCliente:(info.cliente||'').trim(),
     nomeObra:(info.obra||'').trim()||'Obra Principal',
     valorNegociado:Math.round(n(registro.valorFinal)*100)/100,
+    dataNegociacao:registro.savedAt?new Date(registro.savedAt).toISOString().slice(0,10):null,
     prazoDias:equipe.prazoManual!=null&&equipe.prazoManual!==''?n(equipe.prazoManual):null,
     descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):''),
     tarefas:tarefasImportadas,
@@ -1967,7 +2014,7 @@ function mostrarPreviewOrcamento(item){
     <div style="font-size:.85rem;line-height:1.8;">
       <b>Cliente:</b> ${escapeHtml(mapa.nomeCliente||'—')} ${mapa.nomeCliente?(clienteExistente?'<span class="reg R1">já cadastrado</span>':'<span class="reg R2">novo — será criado</span>'):''}<br>
       <b>Obra:</b> ${escapeHtml(mapa.nomeObra)}<br>
-      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}${mapa.prazoDias?` · <b>Prazo:</b> ${int(mapa.prazoDias)} dias`:''}<br>
+      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}${mapa.dataNegociacao?` (${fmtData(mapa.dataNegociacao)})`:''}${mapa.prazoDias?` · <b>Prazo:</b> ${int(mapa.prazoDias)} dias`:''}<br>
       <b>Descrição sugerida:</b> ${escapeHtml(mapa.descricao)}<br>
       <b>QTD Lances:</b> ${int(mapa.qtdLances)} · <b>QTD Bombeamentos:</b> ${int(mapa.qtdBombeamentos)} · <b>Adutora:</b> ${int(mapa.adutora)} m<br>
       <b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h ·
@@ -2003,7 +2050,7 @@ function mostrarPreviewOrcamento(item){
       saveCache();
     }
     document.getElementById('overlay-importar-orcamento').style.display='none';
-    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,prazoDias:mapa.prazoDias,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
+    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,dataNegociacao:mapa.dataNegociacao,prazoDias:mapa.prazoDias,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
   });
 }
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}

@@ -179,7 +179,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
 
   <section class="pane" id="pane-regional">
     <h2 class="pane-title">Regional</h2>
-    <p class="pane-desc">Resultado (recebido − custo) por regional e por cliente, e status atual das obras.</p>
+    <p class="pane-desc">Resultado (negociado − custo) por regional e por cliente, e status atual das obras.</p>
     <div class="filtros-topo" id="filtros-topo-regional"></div>
     <div class="grid" style="grid-template-columns:1fr;">
       <div class="card chart-card"><h3>Resultado Regional</h3><div class="chart-wrap" id="wrap-resultado-regional"><canvas id="chart-resultado-regional"></canvas></div></div>
@@ -682,13 +682,16 @@ function renderGraficoCustoCategoria(base){
 function renderGraficoResultadoRegional(base){
   const canvas=document.getElementById('chart-resultado-regional');if(!canvas||!window.Chart)return;
   const porReg={};
+  obrasFiltradasPeloPainel().forEach(o=>{
+    const c=clientePorId(o.clienteId);
+    const reg=(c&&c.regional)||'(sem regional)';
+    porReg[reg]=(porReg[reg]||0)+n(o.valorNegociado);
+  });
   base.forEach(l=>{
-    const reg=regionalDoLancamento(l)||'(sem regional)';
     const tipo=String(l.tipo||'').toUpperCase().trim();
-    const val=valorTotalLancamento(l);
-    porReg[reg]=porReg[reg]||0;
-    if(tipo==='ENTRADA')porReg[reg]+=val;
-    if(tipo==='SAIDA'&&categoriaComponeCusto(l.categoria))porReg[reg]-=val;
+    if(tipo!=='SAIDA'||!categoriaComponeCusto(l.categoria))return;
+    const reg=regionalDoLancamento(l)||'(sem regional)';
+    porReg[reg]=(porReg[reg]||0)-valorTotalLancamento(l);
   });
   const entradas=Object.entries(porReg).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]),cores=dados.map(v=>v<0?'#a3312a':'#0a7517');
@@ -698,13 +701,16 @@ function renderGraficoResultadoRegional(base){
 function renderGraficoResultadoCliente(base){
   const canvas=document.getElementById('chart-resultado-cliente');if(!canvas||!window.Chart)return;
   const porCli={};
+  obrasFiltradasPeloPainel().forEach(o=>{
+    const c=clientePorId(o.clienteId);
+    const nome=c?c.nome:'(sem cliente)';
+    porCli[nome]=(porCli[nome]||0)+n(o.valorNegociado);
+  });
   base.forEach(l=>{
-    const cli=nomeClienteDoLancamento(l);
     const tipo=String(l.tipo||'').toUpperCase().trim();
-    const val=valorTotalLancamento(l);
-    porCli[cli]=porCli[cli]||0;
-    if(tipo==='ENTRADA')porCli[cli]+=val;
-    if(tipo==='SAIDA'&&categoriaComponeCusto(l.categoria))porCli[cli]-=val;
+    if(tipo!=='SAIDA'||!categoriaComponeCusto(l.categoria))return;
+    const cli=nomeClienteDoLancamento(l);
+    porCli[cli]=(porCli[cli]||0)-valorTotalLancamento(l);
   });
   const entradas=Object.entries(porCli).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,15).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]),cores=dados.map(v=>v<0?'#a3312a':'#0a7517');
@@ -734,7 +740,7 @@ function renderCardPorObra(baseLancamentos){
     const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
     const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);
     const c=clientePorId(o.clienteId);
-    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),atraso:textoAtraso(o),diasAtraso:diasAtraso(o),custo,recebido,negociado,resultado:recebido-custo};
+    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),atraso:textoAtraso(o),diasAtraso:diasAtraso(o),custo,recebido,negociado,resultado:negociado-custo};
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
   const limite=filtroCliente?linhas.length:Math.min(linhas.length,20);
   const linhasCorte=linhas.slice(0,limite);
@@ -752,12 +758,12 @@ function renderPainel(){
   const base=lancamentosFiltradosGlobal();
   const custo=somaPorTipo('SAIDA',base),recebido=somaPorTipo('ENTRADA',base);
   const negociado=obrasFiltradasPeloPainel().reduce((a,o)=>a+n(o.valorNegociado),0);
-  const resultado=recebido-custo;
+  const resultado=negociado-custo;
   document.getElementById('strip-painel').innerHTML=[
     tbox('Custo',brl(custo)),
     tbox('Negociado',brl(negociado)),
     tbox('Recebido',brl(recebido)),
-    tbox(resultado<0?'Resultado ⚠':'Resultado',brl(resultado),'Recebido − Custo',{accent:true}),
+    tbox(resultado<0?'Resultado ⚠':'Resultado',brl(resultado),'Negociado − Custo',{accent:true}),
   ].join('');
   renderGraficoResumoObra(base);
   renderGraficoBalanco(base);

@@ -300,7 +300,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     </div>
     <div class="card somente-admin">
       <h3>Listas Configuráveis</h3>
-      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Itens que aparecem como opções nos formulários de Clientes (Regional) e Lançamentos (Categoria). O Status das Obras agora é calculado automaticamente pelas datas — veja em Obras.</p>
+      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Itens que aparecem como opções nos formulários de Clientes (Regional) e Lançamentos (Categoria). O Status das Obras agora é calculado automaticamente pelas datas — veja em Obras. Marque "não compõe custo" numa categoria pra ela continuar existindo como lançamento normal, mas sair do Custo/Resultado do Painel, Regional e do gráfico de Custo por Categoria.</p>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));">
         <div>
           <div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin-bottom:6px;">Regionais (Clientes)</div>
@@ -554,9 +554,18 @@ function clienteDoLancamento(l){const o=obraPorId(l.obraId);return o?clientePorI
 function nomeClienteDoLancamento(l){const c=clienteDoLancamento(l);return c?c.nome:'(sem cliente)';}
 function regionalDoLancamento(l){const c=clienteDoLancamento(l);return c?(c.regional||''):'';}
 function valorTotalLancamento(l){const q=(l.quantidade!=null&&l.quantidade!=='')?n(l.quantidade):1;return n(l.valor)*q;}
+/* Categorias marcadas em Parâmetros como "não compõe custo" ficam de fora de toda soma de Custo/Resultado —
+   continuam existindo normalmente como lançamentos, só não entram nessas contas. */
+function categoriaComponeCusto(nomeCategoria){
+  return !(listasConfig.categoriasSemCusto||[]).includes(nomeCategoria);
+}
 function somaPorTipo(tipoAlvo,base){
   const alvo=tipoAlvo.toUpperCase();
-  return base.filter(l=>String(l.tipo||'').toUpperCase().trim()===alvo).reduce((a,l)=>a+valorTotalLancamento(l),0);
+  return base.filter(l=>{
+    if(String(l.tipo||'').toUpperCase().trim()!==alvo)return false;
+    if(alvo==='SAIDA'&&!categoriaComponeCusto(l.categoria))return false;
+    return true;
+  }).reduce((a,l)=>a+valorTotalLancamento(l),0);
 }
 const CORES_TIPO={SAIDA:'#a3312a',ENTRADA:'#0a7517',NEGOCIADO:'#cf9b3e'};
 function corTipo(t){return CORES_TIPO[t]||'#5f6e62';}
@@ -660,7 +669,7 @@ function renderGraficoBalanco(base){
 function renderGraficoCustoCategoria(base){
   const canvas=document.getElementById('chart-custo-categoria');if(!canvas||!window.Chart)return;
   const porCat={};
-  base.filter(l=>String(l.tipo||'').toUpperCase().trim()==='SAIDA').forEach(l=>{
+  base.filter(l=>String(l.tipo||'').toUpperCase().trim()==='SAIDA'&&categoriaComponeCusto(l.categoria)).forEach(l=>{
     const cat=l.categoria||'(sem categoria)';
     porCat[cat]=(porCat[cat]||0)+valorTotalLancamento(l);
   });
@@ -679,7 +688,7 @@ function renderGraficoResultadoRegional(base){
     const val=valorTotalLancamento(l);
     porReg[reg]=porReg[reg]||0;
     if(tipo==='ENTRADA')porReg[reg]+=val;
-    if(tipo==='SAIDA')porReg[reg]-=val;
+    if(tipo==='SAIDA'&&categoriaComponeCusto(l.categoria))porReg[reg]-=val;
   });
   const entradas=Object.entries(porReg).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]),cores=dados.map(v=>v<0?'#a3312a':'#0a7517');
@@ -695,7 +704,7 @@ function renderGraficoResultadoCliente(base){
     const val=valorTotalLancamento(l);
     porCli[cli]=porCli[cli]||0;
     if(tipo==='ENTRADA')porCli[cli]+=val;
-    if(tipo==='SAIDA')porCli[cli]-=val;
+    if(tipo==='SAIDA'&&categoriaComponeCusto(l.categoria))porCli[cli]-=val;
   });
   const entradas=Object.entries(porCli).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,15).sort((a,b)=>b[1]-a[1]);
   const labels=entradas.map(e=>e[0]),dados=entradas.map(e=>e[1]),cores=dados.map(v=>v<0?'#a3312a':'#0a7517');
@@ -2085,11 +2094,11 @@ async function saveAcesso(){
 }
 
 /* ==================== LISTAS CONFIGURÁVEIS (Status/Regional/Categoria) ==================== */
-let listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[]};
+let listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[],categoriasSemCusto:[]};
 let listasEtag=null;
 async function carregarListas(){
   const r=await graphGetJsonEtag(spPath(LISTAS_FILE));
-  if(r.ok&&r.data)listasConfig=Object.assign({status:[],regionais:[],categorias:[]},r.data);
+  if(r.ok&&r.data)listasConfig=Object.assign({status:[],regionais:[],categorias:[],categoriasSemCusto:[]},r.data);
   if(r.ok)listasEtag=r.etag;
 }
 async function salvarListas(){
@@ -2102,7 +2111,7 @@ async function salvarListas(){
     else if(res.status===412||res.status===409){
       const servidor=await graphGetJsonEtag(spPath(LISTAS_FILE));
       if(servidor.ok&&servidor.data){
-        ['status','regionais','categorias'].forEach(k=>{listasConfig[k]=uni(servidor.data[k],listasConfig[k]);});
+        ['status','regionais','categorias','categoriasSemCusto'].forEach(k=>{listasConfig[k]=uni(servidor.data[k],listasConfig[k]);});
         listasEtag=servidor.etag;
       }else break;
     }else break;
@@ -2111,16 +2120,34 @@ async function salvarListas(){
   return ok;
 }
 function renderListasConfig(){
-  const mapa=[['regionais','lista-config-regionais'],['categorias','lista-config-categorias']];
-  mapa.forEach(([chave,contId])=>{
-    const cont=document.getElementById(contId);if(!cont)return;
-    const itens=listasConfig[chave]||[];
-    cont.innerHTML=itens.length?itens.map((v,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.85rem;"><span style="flex:1;">${escapeHtml(v)}</span><button class="btn danger small" data-rem-lista="${chave}" data-idx="${i}" type="button">×</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhum item cadastrado.</div>`;
-  });
+  const cRegionais=document.getElementById('lista-config-regionais');
+  if(cRegionais){
+    const itens=listasConfig.regionais||[];
+    cRegionais.innerHTML=itens.length?itens.map((v,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.85rem;"><span style="flex:1;">${escapeHtml(v)}</span><button class="btn danger small" data-rem-lista="regionais" data-idx="${i}" type="button">×</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhum item cadastrado.</div>`;
+  }
+  const cCategorias=document.getElementById('lista-config-categorias');
+  if(cCategorias){
+    const itens=listasConfig.categorias||[];
+    const semCusto=listasConfig.categoriasSemCusto||[];
+    cCategorias.innerHTML=itens.length?itens.map((v,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.85rem;"><span style="flex:1;">${escapeHtml(v)}</span><label style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--texto-suave);white-space:nowrap;"><input type="checkbox" data-toggle-sem-custo="${escapeHtml(v)}" ${semCusto.includes(v)?'checked':''}>não compõe custo</label><button class="btn danger small" data-rem-lista="categorias" data-idx="${i}" type="button">×</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.8rem;">Nenhum item cadastrado.</div>`;
+    cCategorias.querySelectorAll('[data-toggle-sem-custo]').forEach(chk=>{
+      chk.onchange=async()=>{
+        const nome=chk.dataset.toggleSemCusto;
+        listasConfig.categoriasSemCusto=listasConfig.categoriasSemCusto||[];
+        if(chk.checked){if(!listasConfig.categoriasSemCusto.includes(nome))listasConfig.categoriasSemCusto.push(nome);}
+        else{listasConfig.categoriasSemCusto=listasConfig.categoriasSemCusto.filter(x=>x!==nome);}
+        const ok=await salvarListas();
+        if(ok){renderAll();toast('Categoria "'+nome+'" '+(chk.checked?'não':'já')+' compõe mais o custo.');}
+        else toast('Não foi possível salvar.');
+      };
+    });
+  }
   document.querySelectorAll('[data-rem-lista]').forEach(b=>{
     b.onclick=async()=>{
       const chave=b.dataset.remLista,idx=+b.dataset.idx;
+      const removida=listasConfig[chave][idx];
       listasConfig[chave].splice(idx,1);
+      if(chave==='categorias'&&listasConfig.categoriasSemCusto)listasConfig.categoriasSemCusto=listasConfig.categoriasSemCusto.filter(x=>x!==removida);
       await salvarListas();renderListasConfig();
     };
   });

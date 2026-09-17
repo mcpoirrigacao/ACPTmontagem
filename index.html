@@ -618,12 +618,19 @@ function opcoesObrasFiltro(){
   if(filtroCliente)lista=lista.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroCliente;});
   return lista.map(o=>{const c=clientePorId(o.clienteId);return {id:o.id,label:(c?c.nome:'?')+' — '+o.nome};}).sort((a,b)=>a.label.localeCompare(b.label));
 }
+/* Pra este filtro (Painel/Regional), "Andamento Atrasada" conta como "Em andamento" —
+   é a mesma obra em andamento, só fora do prazo. A distinção fina continua em Obras/Agenda. */
+function statusCorrespondeAoFiltro(statusObra,filtro){
+  if(!filtro)return true;
+  if(filtro==='Em andamento')return statusObra==='Em andamento'||statusObra==='Andamento Atrasada';
+  return statusObra===filtro;
+}
 function lancamentosFiltradosGlobal(){
   let arr=lancamentos;
   if(filtroCliente)arr=arr.filter(l=>nomeClienteDoLancamento(l)===filtroCliente);
   if(filtroRegional)arr=arr.filter(l=>regionalDoLancamento(l)===filtroRegional);
   if(filtroObra)arr=arr.filter(l=>l.obraId===filtroObra);
-  if(filtroStatus)arr=arr.filter(l=>{const o=obraPorId(l.obraId);return o&&statusEfetivo(o)===filtroStatus;});
+  if(filtroStatus)arr=arr.filter(l=>{const o=obraPorId(l.obraId);return o&&statusCorrespondeAoFiltro(statusEfetivo(o),filtroStatus);});
   if(filtroDataDe||filtroDataAte){
     arr=arr.filter(l=>{
       if(!l.data)return false;
@@ -640,20 +647,20 @@ function obrasFiltradasPeloPainel(){
   if(filtroCliente)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroCliente;});
   if(filtroRegional)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.regional===filtroRegional;});
   if(filtroObra)arr=arr.filter(o=>o.id===filtroObra);
-  if(filtroStatus)arr=arr.filter(o=>statusEfetivo(o)===filtroStatus);
+  if(filtroStatus)arr=arr.filter(o=>statusCorrespondeAoFiltro(statusEfetivo(o),filtroStatus));
   return arr;
 }
 function renderFiltrosTopo(prefix){
   const wrap=document.getElementById('filtros-topo-'+prefix);if(!wrap)return;
   const optsCliente=opcoesClientesDistintos(),optsRegional=opcoesRegionaisDistintas(),optsObra=opcoesObrasFiltro();
-  const optsStatus=Object.keys(CORES_STATUS_FIXAS);
+  const optsStatus=Object.keys(CORES_STATUS_FIXAS).filter(v=>v!=='Andamento Atrasada');
   const temFiltro=filtroCliente||filtroRegional||filtroObra||filtroDataDe||filtroDataAte||filtroStatus;
   wrap.innerHTML=
     `<input type="text" data-ftipo="cliente" list="datalist-clientes-${prefix}" value="${escapeHtml(filtroCliente)}" placeholder="Cliente: todos">`+
     `<datalist id="datalist-clientes-${prefix}">${optsCliente.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('')}</datalist>`+
     `<select data-ftipo="regional"><option value="">Regional: todos</option>${optsRegional.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroRegional?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`+
     `<select data-ftipo="obra"><option value="">Obra: todas</option>${optsObra.map(o=>`<option value="${escapeHtml(o.id)}" ${o.id===filtroObra?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`+
-    `<select data-ftipo="status"><option value="">Status: todos</option>${optsStatus.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroStatus?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`+
+    `<select data-ftipo="status"><option value="">Status: todos</option>${optsStatus.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroStatus?'selected':''}>${escapeHtml(v==='Em andamento'?'Em andamento (inclui atrasadas)':v)}</option>`).join('')}</select>`+
     `<input type="date" data-ftipo="dataDe" value="${filtroDataDe}" title="Data inicial"><input type="date" data-ftipo="dataAte" value="${filtroDataAte}" title="Data final">`+
     (temFiltro?`<button type="button" class="btn ghost small" data-flimpar="1">Limpar filtros</button>`:'');
   wrap.querySelectorAll('[data-ftipo]').forEach(el=>{

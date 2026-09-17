@@ -372,6 +372,15 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
 
 <div class="overlay" id="overlay-login"><div class="box"><div class="emoji">🔐</div><h2>MAQCAMPO</h2><p>Faça login com sua conta Microsoft para acessar.</p><button onclick="document.getElementById('btn-ms-login').click()" class="btn primary" style="width:100%;padding:12px;" type="button">🔑 Entrar com Microsoft</button></div></div>
 <div class="overlay" id="overlay-negado"><div class="box"><div class="emoji">🔒</div><h2>Acesso Restrito</h2><p>Seu e-mail não está cadastrado. Peça a um administrador para liberar.</p><div id="overlay-email-info" style="background:var(--areia);border-radius:6px;padding:10px 14px;font-size:.82rem;color:var(--texto-suave);margin-bottom:20px;word-break:break-all;"></div><button onclick="document.getElementById('btn-ms-login').click()" class="btn ghost" style="width:100%;" type="button">Entrar com outra conta</button></div></div>
+<div class="overlay" id="overlay-confirmar">
+  <div class="box" style="max-width:420px;width:92%;text-align:left;">
+    <p id="texto-confirmar" style="margin:0 0 20px;font-size:.92rem;line-height:1.5;"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn ghost small" id="btn-confirmar-cancelar" type="button">Cancelar</button>
+      <button class="btn danger small" id="btn-confirmar-ok" type="button">Confirmar</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="overlay-registro">
   <div class="box" style="max-width:760px;width:96%;text-align:left;max-height:88vh;overflow-y:auto;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;">
@@ -475,6 +484,27 @@ function brl(v){return (v||0).toLocaleString('pt-BR',{style:'currency',currency:
 function int(v){return (v||0).toLocaleString('pt-BR');}
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s==null?'':s;return d.innerHTML;}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._h);toast._h=setTimeout(()=>t.classList.remove('show'),2200);}
+/* Confirmação própria do app (não usa window.confirm) — alguns navegadores silenciam confirm()
+   depois que a pessoa marca "impedir que esta página crie novas caixas de diálogo", e nesse caso
+   confirm() retorna false sem mostrar nada, travando qualquer ação que dependa dele (inclusive login). */
+let _resolveConfirmar=null;
+function confirmarAcao(mensagem){
+  return new Promise(resolve=>{
+    document.getElementById('texto-confirmar').textContent=mensagem;
+    document.getElementById('overlay-confirmar').style.display='flex';
+    _resolveConfirmar=resolve;
+  });
+}
+document.getElementById('btn-confirmar-ok').addEventListener('click',()=>{
+  document.getElementById('overlay-confirmar').style.display='none';
+  if(_resolveConfirmar)_resolveConfirmar(true);
+  _resolveConfirmar=null;
+});
+document.getElementById('btn-confirmar-cancelar').addEventListener('click',()=>{
+  document.getElementById('overlay-confirmar').style.display='none';
+  if(_resolveConfirmar)_resolveConfirmar(false);
+  _resolveConfirmar=null;
+});
 function tbox(label,value,sub,opts){opts=opts||{};const cls='total-box'+(opts.accent?' accent':'');return `<div class="${cls}"><div class="label">${label}</div><div class="value ${opts.sm?'sm':''}">${value}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;}
 function normNome(s){return (s||'').replace(/\s+/g,' ').trim().toLowerCase();}
 function fmtData(v){if(!v)return '—';const d=new Date(v);if(isNaN(d))return String(v);return d.toLocaleDateString('pt-BR',{timeZone:'UTC'});}
@@ -1336,7 +1366,7 @@ function renderPremiacaoEditor(){
         const jaSalvo=!!(obra&&obra.pagamentosPremiacao&&obra.pagamentosPremiacao.some(p=>p.id===pagamento.id));
         if(jaSalvo){
           const lancVinculado=lancamentos.find(l=>l.pagamentoId===pagamento.id);
-          if(!confirm('Excluir este pagamento?'+(lancVinculado?' O lançamento de Premiação criado junto com ele também será excluído.':'')))return;
+          if(!(await confirmarAcao('Excluir este pagamento?'+(lancVinculado?' O lançamento de Premiação criado junto com ele também será excluído.':''))))return;
           const statusEl=document.getElementById('status-modal-registro');
           statusEl.textContent='⏳ excluindo…';
           const pagamentosAntes=obra.pagamentosPremiacao;
@@ -1551,7 +1581,7 @@ document.getElementById('btn-excluir-registro').addEventListener('click',async()
   if(!modalEditandoId)return;
   if(modalEntidade==='cliente'&&obras.some(o=>o.clienteId===modalEditandoId)){toast('Não é possível excluir: existem obras vinculadas a este cliente.');return;}
   if(modalEntidade==='obra'&&lancamentos.some(l=>l.obraId===modalEditandoId)){toast('Não é possível excluir: existem lançamentos vinculados a esta obra.');return;}
-  if(!confirm('Excluir este registro? Essa ação não pode ser desfeita.'))return;
+  if(!(await confirmarAcao('Excluir este registro? Essa ação não pode ser desfeita.')))return;
   const statusEl=document.getElementById('status-modal-registro');
   statusEl.textContent='⏳ excluindo…';
   if(modalEntidade==='cliente')clientes=clientes.filter(x=>x.id!==modalEditandoId);
@@ -1857,10 +1887,10 @@ function renderAbasMedicao(){
     renderAbasMedicao();renderGridMedicao();
   });
   const btnRem=document.getElementById('btn-rem-medicao');
-  if(btnRem)btnRem.addEventListener('click',()=>{
+  if(btnRem)btnRem.addEventListener('click',async()=>{
     if(obra&&medicaoEstaPaga(obra,medicaoSelecionada)){toast('Esta medição já tem pagamento registrado — não pode ser removida.');return;}
     const temDados=Object.values(medicoesEmEdicao[medicaoSelecionada].quantidades).some(v=>n(v)>0);
-    if(temDados&&!confirm('Esta medição tem quantidades preenchidas. Remover mesmo assim?'))return;
+    if(temDados&&!(await confirmarAcao('Esta medição tem quantidades preenchidas. Remover mesmo assim?')))return;
     medicoesEmEdicao.splice(medicaoSelecionada,1);
     medicaoSelecionada=Math.max(0,medicaoSelecionada-1);
     renderAbasMedicao();renderGridMedicao();
@@ -2315,9 +2345,9 @@ async function executarMigracao(){
   if(!souAdmin()){toast('Somente administradores podem migrar.');return;}
   const statusEl=document.getElementById('status-migracao');
   if(clientes.length||obras.length||lancamentos.length){
-    if(!confirm('Já existem dados aqui (Clientes/Obras/Lançamentos). Migrar de novo vai SOBRESCREVER tudo que já está salvo. Continuar?'))return;
+    if(!(await confirmarAcao('Já existem dados aqui (Clientes/Obras/Lançamentos). Migrar de novo vai SOBRESCREVER tudo que já está salvo. Continuar?')))return;
   }else{
-    if(!confirm('Isso vai ler todos os registros da lista "Montagem Geral MCPO" e criar Clientes/Obras/Lançamentos aqui. A lista original NÃO será apagada nem alterada. Continuar?'))return;
+    if(!(await confirmarAcao('Isso vai ler todos os registros da lista "Montagem Geral MCPO" e criar Clientes/Obras/Lançamentos aqui. A lista original NÃO será apagada nem alterada. Continuar?')))return;
   }
   statusEl.textContent='⏳ lendo a lista antiga…';
   const t=await getGraphToken();
@@ -2398,7 +2428,7 @@ function limparDadosLocaisAoSair(){
 document.getElementById('btn-ms-login').addEventListener('click',async()=>{
   if(!msalInstance){toast('Autenticação inicializando — tente de novo.');return;}
   if(msAccount){
-    if(!confirm('Sair de '+msAccount.username+'?'))return;
+    if(!(await confirmarAcao('Sair de '+msAccount.username+'?')))return;
     const contaSaindo=msAccount;
     let popupOk=true;
     try{await msalInstance.logoutPopup({account:contaSaindo});}

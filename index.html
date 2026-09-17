@@ -2385,11 +2385,41 @@ async function initAuth(){
   }catch(e){msalReady=false;document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';const info=document.getElementById('ms-user-info');info.textContent='(modo local — login indisponível)';info.style.display='block';}
 }
 function updateLoginUI(){const lbl=document.getElementById('ms-login-label'),info=document.getElementById('ms-user-info');if(msAccount){lbl.textContent='✓ '+(msAccount.name||msAccount.username);info.textContent='SharePoint › '+SP_PASTA;info.style.display='block';}else{lbl.textContent='🔑 Entrar com Microsoft';info.style.display='none';}}
+function limparDadosLocaisAoSair(){
+  clientes=[];obras=[];lancamentos=[];tecnicos=[];
+  listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[],categoriasSemCusto:[]};
+  acesso={emailsAutorizados:[],emailsComuns:[]};
+  ultimaSync=null;
+  etagClientes=null;etagObras=null;etagLancamentos=null;etagTecnicos=null;acessoEtag=null;listasEtag=null;etagTarefasTmo=null;
+  orcamentosCache=null;
+  try{localStorage.removeItem(STORE_KEY);}catch(e){}
+  clearInterval(_pollTimer);
+}
 document.getElementById('btn-ms-login').addEventListener('click',async()=>{
   if(!msalInstance){toast('Autenticação inicializando — tente de novo.');return;}
-  if(msAccount){if(confirm('Sair de '+msAccount.username+'?')){try{await msalInstance.logoutPopup({account:msAccount});}catch(e){}msAccount=null;updateLoginUI();applyAccess();}return;}
-  try{document.getElementById('ms-login-label').textContent='⏳ Abrindo login...';const resp=await msalInstance.loginPopup({scopes:GRAPH_SCOPES});msAccount=resp.account;updateLoginUI();await carregarAcesso();await carregarListas();await carregarDados(true);applyAccess();renderAll();toast('Logado como '+msAccount.username);}
-  catch(e){document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';toast('Erro no login: '+(e.errorCode||e.message||'desconhecido'));}
+  if(msAccount){
+    if(!confirm('Sair de '+msAccount.username+'?'))return;
+    const contaSaindo=msAccount;
+    let popupOk=true;
+    try{await msalInstance.logoutPopup({account:contaSaindo});}
+    catch(e){popupOk=false;}
+    msAccount=null;
+    limparDadosLocaisAoSair();
+    updateLoginUI();applyAccess();renderAll();
+    toast(popupOk?'Desconectado.':'Desconectado localmente — a janela de logout do Microsoft não abriu (pode estar bloqueada), mas para trocar de conta isso não deve ser um problema.');
+    return;
+  }
+  try{
+    document.getElementById('ms-login-label').textContent='⏳ Abrindo login...';
+    const resp=await msalInstance.loginPopup({scopes:GRAPH_SCOPES,prompt:'select_account'});
+    msAccount=resp.account;updateLoginUI();
+    await carregarAcesso();await carregarListas();await carregarDados(true);
+    applyAccess();startPolling();renderAll();
+    toast('Logado como '+msAccount.username);
+  }catch(e){
+    document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';
+    toast('Erro no login: '+(e.errorCode||e.message||'desconhecido'));
+  }
 });
 
 renderAll();

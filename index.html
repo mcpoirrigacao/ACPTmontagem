@@ -2405,7 +2405,14 @@ document.getElementById('btn-add-comum').addEventListener('click',async()=>{cons
 document.getElementById('btn-sync').addEventListener('click',async()=>{if(!msAccount){toast('Entre com o Microsoft primeiro.');return;}await carregarAcesso();await carregarListas();await carregarDados(false);renderParametros();});
 
 /* ==================== LOGIN / INIT ==================== */
+/* Limpa a trava "interação em andamento" do MSAL — se um popup de login/logout anterior
+   foi fechado sem terminar (ou a página recarregou no meio), o MSAL guarda esse estado em
+   sessionStorage e se recusa a abrir um novo popup até isso ser limpo, mesmo sem nada visível. */
+function limparInteracaoTravadaMsal(){
+  try{Object.keys(sessionStorage).forEach(k=>{if(k.toLowerCase().includes('interaction'))sessionStorage.removeItem(k);});}catch(e){}
+}
 async function initAuth(){
+  limparInteracaoTravadaMsal();
   try{
     await loadMsal();const M=window.msal&&window.msal.PublicClientApplication;if(!M)throw new Error('MSAL');
     msalInstance=new M(MSAL_CONFIG);await msalInstance.initialize();msalReady=true;
@@ -2447,6 +2454,22 @@ document.getElementById('btn-ms-login').addEventListener('click',async()=>{
     applyAccess();startPolling();renderAll();
     toast('Logado como '+msAccount.username);
   }catch(e){
+    const ehInteracaoTravada=e&&(e.errorCode==='interaction_in_progress'||String(e.message||'').includes('interaction_in_progress'));
+    if(ehInteracaoTravada){
+      limparInteracaoTravadaMsal();
+      try{
+        const resp=await msalInstance.loginPopup({scopes:GRAPH_SCOPES,prompt:'select_account'});
+        msAccount=resp.account;updateLoginUI();
+        await carregarAcesso();await carregarListas();await carregarDados(true);
+        applyAccess();startPolling();renderAll();
+        toast('Logado como '+msAccount.username);
+        return;
+      }catch(e2){
+        document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';
+        toast('Erro no login: '+(e2.errorCode||e2.message||'desconhecido'));
+        return;
+      }
+    }
     document.getElementById('ms-login-label').textContent='🔑 Entrar com Microsoft';
     toast('Erro no login: '+(e.errorCode||e.message||'desconhecido'));
   }

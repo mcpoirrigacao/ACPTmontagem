@@ -610,7 +610,7 @@ const CORES_TIPO={SAIDA:'#a3312a',ENTRADA:'#0a7517',NEGOCIADO:'#cf9b3e'};
 function corTipo(t){return CORES_TIPO[t]||'#5f6e62';}
 
 /* ============================ FILTROS GLOBAIS (Painel + Regional) ============================ */
-let filtroCliente='',filtroRegional='',filtroObra='',filtroDataDe='',filtroDataAte='';
+let filtroCliente='',filtroRegional='',filtroObra='',filtroDataDe='',filtroDataAte='',filtroStatus='';
 function opcoesClientesDistintos(){return clientes.map(c=>c.nome).filter(Boolean).sort();}
 function opcoesRegionaisDistintas(){return Array.from(new Set(clientes.map(c=>c.regional).filter(Boolean))).sort();}
 function opcoesObrasFiltro(){
@@ -623,6 +623,7 @@ function lancamentosFiltradosGlobal(){
   if(filtroCliente)arr=arr.filter(l=>nomeClienteDoLancamento(l)===filtroCliente);
   if(filtroRegional)arr=arr.filter(l=>regionalDoLancamento(l)===filtroRegional);
   if(filtroObra)arr=arr.filter(l=>l.obraId===filtroObra);
+  if(filtroStatus)arr=arr.filter(l=>{const o=obraPorId(l.obraId);return o&&statusEfetivo(o)===filtroStatus;});
   if(filtroDataDe||filtroDataAte){
     arr=arr.filter(l=>{
       if(!l.data)return false;
@@ -639,17 +640,20 @@ function obrasFiltradasPeloPainel(){
   if(filtroCliente)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroCliente;});
   if(filtroRegional)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.regional===filtroRegional;});
   if(filtroObra)arr=arr.filter(o=>o.id===filtroObra);
+  if(filtroStatus)arr=arr.filter(o=>statusEfetivo(o)===filtroStatus);
   return arr;
 }
 function renderFiltrosTopo(prefix){
   const wrap=document.getElementById('filtros-topo-'+prefix);if(!wrap)return;
   const optsCliente=opcoesClientesDistintos(),optsRegional=opcoesRegionaisDistintas(),optsObra=opcoesObrasFiltro();
-  const temFiltro=filtroCliente||filtroRegional||filtroObra||filtroDataDe||filtroDataAte;
+  const optsStatus=Object.keys(CORES_STATUS_FIXAS);
+  const temFiltro=filtroCliente||filtroRegional||filtroObra||filtroDataDe||filtroDataAte||filtroStatus;
   wrap.innerHTML=
     `<input type="text" data-ftipo="cliente" list="datalist-clientes-${prefix}" value="${escapeHtml(filtroCliente)}" placeholder="Cliente: todos">`+
     `<datalist id="datalist-clientes-${prefix}">${optsCliente.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('')}</datalist>`+
     `<select data-ftipo="regional"><option value="">Regional: todos</option>${optsRegional.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroRegional?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`+
     `<select data-ftipo="obra"><option value="">Obra: todas</option>${optsObra.map(o=>`<option value="${escapeHtml(o.id)}" ${o.id===filtroObra?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`+
+    `<select data-ftipo="status"><option value="">Status: todos</option>${optsStatus.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroStatus?'selected':''}>${escapeHtml(v)}</option>`).join('')}</select>`+
     `<input type="date" data-ftipo="dataDe" value="${filtroDataDe}" title="Data inicial"><input type="date" data-ftipo="dataAte" value="${filtroDataAte}" title="Data final">`+
     (temFiltro?`<button type="button" class="btn ghost small" data-flimpar="1">Limpar filtros</button>`:'');
   wrap.querySelectorAll('[data-ftipo]').forEach(el=>{
@@ -663,13 +667,14 @@ function renderFiltrosTopo(prefix){
       }
       if(tipo==='regional')filtroRegional=el.value;
       if(tipo==='obra')filtroObra=el.value;
+      if(tipo==='status')filtroStatus=el.value;
       if(tipo==='dataDe')filtroDataDe=el.value;
       if(tipo==='dataAte')filtroDataAte=el.value;
       renderPainel();renderRegional();
     });
   });
   const btnLimpar=wrap.querySelector('[data-flimpar]');
-  if(btnLimpar)btnLimpar.addEventListener('click',()=>{filtroCliente='';filtroRegional='';filtroObra='';filtroDataDe='';filtroDataAte='';renderPainel();renderRegional();});
+  if(btnLimpar)btnLimpar.addEventListener('click',()=>{filtroCliente='';filtroRegional='';filtroObra='';filtroDataDe='';filtroDataAte='';filtroStatus='';renderPainel();renderRegional();});
 }
 
 /* ============================ GRÁFICOS (Chart.js) ============================ */

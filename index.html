@@ -196,6 +196,16 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
       <button class="btn primary somente-admin" id="btn-novo-cliente" type="button">+ Novo Cliente</button>
     </div>
     <div class="card">
+      <h3>Filtros</h3>
+      <div class="toolbar-dados" style="margin-bottom:0;">
+        <input type="text" id="filtro-clientes-nome" list="datalist-clientes-nome" placeholder="Cliente: todos">
+        <input type="text" id="filtro-clientes-regional" list="datalist-clientes-regional" placeholder="Regional: todos">
+        <button class="btn ghost small" id="btn-limpar-filtros-clientes" type="button">Limpar filtros</button>
+      </div>
+      <datalist id="datalist-clientes-nome"></datalist>
+      <datalist id="datalist-clientes-regional"></datalist>
+    </div>
+    <div class="card">
       <div class="tablewrap">
         <table class="dt">
           <thead><tr><th>Cliente</th><th>Regional</th><th>Contato</th><th class="r">Obras</th><th class="somente-admin">Ações</th></tr></thead>
@@ -1038,17 +1048,41 @@ document.getElementById('btn-agenda-hoje').addEventListener('click',()=>{const h
 function souAdmin(){const nivel=nivelAcesso();return nivel==='admin'||nivel==='local';}
 
 /* ============================ CLIENTES ============================ */
+let filtroClientesNome='',filtroClientesRegional='';
+function renderFiltrosClientes(){
+  const optsNome=[...clientes].map(c=>c.nome).filter(Boolean).sort();
+  const optsRegional=opcoesRegionaisDistintas();
+  document.getElementById('datalist-clientes-nome').innerHTML=optsNome.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+  document.getElementById('datalist-clientes-regional').innerHTML=optsRegional.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+  const elNome=document.getElementById('filtro-clientes-nome');
+  const elRegional=document.getElementById('filtro-clientes-regional');
+  elNome.value=filtroClientesNome;
+  elRegional.value=filtroClientesRegional;
+  elNome.oninput=()=>{
+    if(elNome.value===''||optsNome.includes(elNome.value)){filtroClientesNome=elNome.value;renderClientes();}
+  };
+  elRegional.oninput=()=>{
+    if(elRegional.value===''||optsRegional.includes(elRegional.value)){filtroClientesRegional=elRegional.value;renderClientes();}
+  };
+}
+document.getElementById('btn-limpar-filtros-clientes').addEventListener('click',()=>{
+  filtroClientesNome='';filtroClientesRegional='';
+  renderFiltrosClientes();renderClientes();
+});
 function renderClientes(){
   const admin=souAdmin();
   document.getElementById('btn-novo-cliente').style.display=admin?'':'none';
   const tbody=document.getElementById('tbody-clientes');
-  const lista=[...clientes].sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  let lista=[...clientes];
+  if(filtroClientesNome)lista=lista.filter(c=>c.nome===filtroClientesNome);
+  if(filtroClientesRegional)lista=lista.filter(c=>c.regional===filtroClientesRegional);
+  lista.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
   tbody.innerHTML=lista.length?lista.map(c=>{
     const qtdObras=obras.filter(o=>o.clienteId===c.id).length;
     return `<tr><td>${escapeHtml(c.nome)}</td><td>${escapeHtml(c.regional||'—')}</td><td>${escapeHtml(c.contato||'—')}</td><td class="num">${int(qtdObras)}</td>${admin?`<td><button class="btn ghost small" data-editar-cliente="${escapeHtml(c.id)}" type="button">editar</button></td>`:''}</tr>`;
-  }).join(''):`<tr><td colspan="${admin?5:4}" style="padding:14px;color:var(--texto-suave);">Nenhum cliente cadastrado.</td></tr>`;
+  }).join(''):`<tr><td colspan="${admin?5:4}" style="padding:14px;color:var(--texto-suave);">Nenhum cliente encontrado.</td></tr>`;
   if(admin)tbody.querySelectorAll('[data-editar-cliente]').forEach(b=>b.addEventListener('click',()=>abrirModal('cliente',b.dataset.editarCliente)));
-  document.getElementById('contagem-clientes').textContent=int(lista.length)+' cliente(s)';
+  document.getElementById('contagem-clientes').textContent=int(lista.length)+' cliente(s)'+(lista.length!==clientes.length?` (de ${int(clientes.length)})`:'');
 }
 document.getElementById('btn-novo-cliente').addEventListener('click',()=>abrirModal('cliente',null));
 
@@ -1610,7 +1644,7 @@ document.getElementById('btn-excluir-registro').addEventListener('click',async()
 function renderAll(){
   renderPainel();
   renderRegional();
-  if(document.getElementById('pane-clientes').classList.contains('active'))renderClientes();
+  if(document.getElementById('pane-clientes').classList.contains('active')){renderFiltrosClientes();renderClientes();}
   if(document.getElementById('pane-obras').classList.contains('active')){renderFiltrosObras();renderObras();}
   if(document.getElementById('pane-agenda').classList.contains('active'))renderAgenda();
   if(document.getElementById('pane-lancamentos').classList.contains('active')){renderFiltrosLancamentos();renderLancamentos();}
@@ -1623,7 +1657,7 @@ document.getElementById('tabs').addEventListener('click',e=>{
   document.getElementById('pane-'+btn.dataset.tab).classList.add('active');
   if(btn.dataset.tab==='painel')renderPainel();
   if(btn.dataset.tab==='regional')renderRegional();
-  if(btn.dataset.tab==='clientes')renderClientes();
+  if(btn.dataset.tab==='clientes'){renderFiltrosClientes();renderClientes();}
   if(btn.dataset.tab==='obras'){renderFiltrosObras();renderObras();}
   if(btn.dataset.tab==='agenda')renderAgenda();
   if(btn.dataset.tab==='lancamentos'){renderFiltrosLancamentos();renderLancamentos();}
@@ -1755,26 +1789,34 @@ function mapearOrcamentoParaObra(registro){
   if(registro.data&&registro.data.observacoes)partes.push('Obs: '+registro.data.observacoes);
   const tarefasImportadas=Object.assign({},tasks);
   const sugestoes=sugerirCamposDeTarefas(tarefasImportadas);
+  const precosImportados={
+    horaEncargo:n(precos.horaEncargo),
+    pctMontador:n(precos.pctMontador),
+    pctAuxiliar:n(precos.pctAuxiliar),
+    tubDN350:n(precos.tubDN350),
+    tubDN450:n(precos.tubDN450),
+    tubDN600:n(precos.tubDN600),
+    maquinaPead:!!servicos.maquinaPead,
+  };
+  let prazoDias=equipe.prazoManual!=null&&equipe.prazoManual!==''?n(equipe.prazoManual):null;
+  let prazoEstimadoAutomaticamente=false;
+  if(prazoDias==null){
+    const tmoTotal=calcularPremiacaoDados(tarefasImportadas,precosImportados).tmoTotal;
+    if(tmoTotal>0){prazoDias=Math.max(1,Math.ceil(tmoTotal/8));prazoEstimadoAutomaticamente=true;}
+  }
   return{
     nomeCliente:(info.cliente||'').trim(),
     nomeObra:(info.obra||'').trim()||'Obra Principal',
     valorNegociado:Math.round(n(registro.valorFinal)*100)/100,
     dataNegociacao:registro.savedAt?new Date(registro.savedAt).toISOString().slice(0,10):null,
-    prazoDias:equipe.prazoManual!=null&&equipe.prazoManual!==''?n(equipe.prazoManual):null,
+    prazoDias,
+    prazoEstimadoAutomaticamente,
     descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):''),
     tarefas:tarefasImportadas,
     qtdLances:sugestoes.qtdLances,
     qtdBombeamentos:sugestoes.qtdBombeamentos,
     adutora:sugestoes.adutora,
-    precosImportados:{
-      horaEncargo:n(precos.horaEncargo),
-      pctMontador:n(precos.pctMontador),
-      pctAuxiliar:n(precos.pctAuxiliar),
-      tubDN350:n(precos.tubDN350),
-      tubDN450:n(precos.tubDN450),
-      tubDN600:n(precos.tubDN600),
-      maquinaPead:!!servicos.maquinaPead,
-    },
+    precosImportados,
   };
 }
 /* ==================== PREMIAÇÃO DO MÊS (relatório + exportação Excel) ==================== */
@@ -2058,7 +2100,7 @@ function mostrarPreviewOrcamento(item){
     <div style="font-size:.85rem;line-height:1.8;">
       <b>Cliente:</b> ${escapeHtml(mapa.nomeCliente||'—')} ${mapa.nomeCliente?(clienteExistente?'<span class="reg R1">já cadastrado</span>':'<span class="reg R2">novo — será criado</span>'):''}<br>
       <b>Obra:</b> ${escapeHtml(mapa.nomeObra)}<br>
-      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}${mapa.dataNegociacao?` (${fmtData(mapa.dataNegociacao)})`:''}${mapa.prazoDias?` · <b>Prazo:</b> ${int(mapa.prazoDias)} dias`:''}<br>
+      <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}${mapa.dataNegociacao?` (${fmtData(mapa.dataNegociacao)})`:''}${mapa.prazoDias?` · <b>Prazo:</b> ${int(mapa.prazoDias)} dias${mapa.prazoEstimadoAutomaticamente?' <span class="reg R2">estimado pelo TMO</span>':''}`:''}<br>
       <b>Descrição sugerida:</b> ${escapeHtml(mapa.descricao)}<br>
       <b>QTD Lances:</b> ${int(mapa.qtdLances)} · <b>QTD Bombeamentos:</b> ${int(mapa.qtdBombeamentos)} · <b>Adutora:</b> ${int(mapa.adutora)} m<br>
       <b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h ·
@@ -2402,7 +2444,7 @@ function applyAccess(){
   const tabParam=document.querySelector('#tabs button[data-tab="parametros"]');
   tabParam.style.display=isAdmin?'':'none';
   if(!isAdmin&&document.getElementById('pane-parametros').classList.contains('active'))document.querySelector('#tabs button[data-tab="painel"]').click();
-  if(document.getElementById('pane-clientes').classList.contains('active'))renderClientes();
+  if(document.getElementById('pane-clientes').classList.contains('active')){renderFiltrosClientes();renderClientes();}
   if(document.getElementById('pane-obras').classList.contains('active'))renderObras();
   if(document.getElementById('pane-lancamentos').classList.contains('active'))renderLancamentos();
 }

@@ -280,6 +280,8 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <div class="card">
       <h3>Agenda por Técnico <span class="h3-side">obras em que a pessoa está alocada</span></h3>
       <select id="sel-agenda-tecnico" style="max-width:320px;"><option value="">Selecione um técnico...</option></select>
+      <div id="resumo-agenda-tecnico" style="margin-top:10px;font-size:.85rem;"></div>
+      <div class="agenda-grid" id="grid-agenda-tecnico" style="margin-top:10px;"></div>
       <div id="lista-agenda-tecnico" style="margin-top:12px;"></div>
     </div>
     <div class="card">
@@ -527,6 +529,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
         <button class="btn primary small" id="btn-add-tecnico-equipe" type="button">+ Adicionar</button>
       </div>
       <input type="text" id="obs-add-tecnico-equipe" placeholder="Observação (opcional)" style="width:100%;margin-top:8px;">
+      <p class="nota" style="margin:6px 0 0;">Início e Fim já vêm sugeridos a partir da Data de Início e do Prazo Estimado da obra — ajuste se o técnico entrar ou sair em outro momento.</p>
       <div id="status-equipe-obra" style="font-size:.8rem;margin-top:8px;"></div>
       <div id="alerta-conflito-equipe" style="display:none;margin-top:10px;padding:10px;border-radius:6px;background:#fdecea;border:1px solid var(--erro);font-size:.82rem;"></div>
     </div>
@@ -940,8 +943,42 @@ function alocacoesAtivas(){return alocacoes.filter(a=>a.ativa!==false);}
 function alocacoesAtivasDaObra(obraId){return alocacoesAtivas().filter(a=>a.obraId===obraId);}
 function alocacoesAtivasDoTecnico(tecnicoId){return alocacoesAtivas().filter(a=>a.tecnicoId===tecnicoId);}
 function alocacoesDaObraOrdenadas(obraId){return alocacoes.filter(a=>a.obraId===obraId).sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0));}
+function intersecaoPeriodos(iniA,fimA,iniB,fimB){
+  const a1=diaZerado(iniA),a2=fimA?diaZerado(fimA):null;
+  const b1=diaZerado(iniB),b2=fimB?diaZerado(fimB):null;
+  if(!a1||!b1)return null;
+  const inicio=a1>b1?a1:b1;
+  let fim;
+  if(a2&&b2)fim=a2<b2?a2:b2;
+  else fim=a2||b2||null;
+  return {inicio,fim};
+}
+/* true se TODOS os dias do período caem dentro de alguma pausa da obra — período aberto (fim null)
+   é checado só até hoje, mesmo critério que diaEmPausa já usa pra pausa em andamento. */
+function periodoTotalmenteEmPausa(obra,inicio,fim){
+  if(!obra||!inicio)return false;
+  const ini=diaZerado(inicio);
+  const fimReal=fim?diaZerado(fim):diaZerado(new Date());
+  if(!ini||!fimReal||fimReal<ini)return false;
+  let d=new Date(ini),dias=0;
+  while(d<=fimReal&&dias<3660){
+    if(!diaEmPausa(obra,d))return false;
+    d=new Date(d.getFullYear(),d.getMonth(),d.getDate()+1);
+    dias++;
+  }
+  return true;
+}
 function conflitosDeAlocacao(tecnicoId,dataInicio,dataFim,ignorarAlocacaoId){
-  return alocacoesAtivasDoTecnico(tecnicoId).filter(a=>a.id!==ignorarAlocacaoId&&periodosSeSobrepoem(dataInicio,dataFim,a.dataInicio,a.dataFim));
+  return alocacoesAtivasDoTecnico(tecnicoId).filter(a=>{
+    if(a.id===ignorarAlocacaoId)return false;
+    if(!periodosSeSobrepoem(dataInicio,dataFim,a.dataInicio,a.dataFim))return false;
+    const obraExistente=obraPorId(a.obraId);
+    if(obraExistente){
+      const inter=intersecaoPeriodos(dataInicio,dataFim,a.dataInicio,a.dataFim);
+      if(inter&&periodoTotalmenteEmPausa(obraExistente,inter.inicio,inter.fim))return false;
+    }
+    return true;
+  });
 }
 async function criarAlocacao(obraId,tecnicoId,dataInicio,dataFim,observacao,forcar){
   const conflitos=conflitosDeAlocacao(tecnicoId,dataInicio,dataFim,null);
@@ -1126,18 +1163,59 @@ function renderSeletorAgendaTecnico(){
   sel.value=valorAtual;
   renderAgendaDoTecnico();
 }
+function alocacoesDoTecnicoNoDia(tecnicoId,data){
+  return alocacoes.filter(a=>a.tecnicoId===tecnicoId&&periodosSeSobrepoem(data,data,a.dataInicio,a.dataFim));
+}
+function renderCalendarioTecnico(tecnicoId){
+  const grid=document.getElementById('grid-agenda-tecnico');
+  if(!tecnicoId){grid.innerHTML='';return;}
+  const nomesDia=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const primeiroDiaSemana=new Date(agendaAno,agendaMes,1).getDay();
+  const diasNoMes=new Date(agendaAno,agendaMes+1,0).getDate();
+  let html=nomesDia.map(d=>`<div class="agenda-cab">${d}</div>`).join('');
+  for(let i=0;i<primeiroDiaSemana;i++)html+='<div class="agenda-dia vazio"></div>';
+  const hojeStr=new Date().toDateString();
+  for(let dia=1;dia<=diasNoMes;dia++){
+    const dataAtual=new Date(agendaAno,agendaMes,dia);
+    const doDia=alocacoesDoTecnicoNoDia(tecnicoId,dataAtual);
+    const limite=4;
+    const chips=doDia.slice(0,limite).map(a=>{
+      const o=obraPorId(a.obraId);const c=o?clientePorId(o.clienteId):null;
+      const label=o?((c?c.nome:'?')+' — '+o.nome):'(obra removida)';
+      const statusAtual=o?statusEfetivo(o):'—';
+      const pausadoHoje=o?diaEmPausa(o,dataAtual):false;
+      const cor=pausadoHoje?CORES_STATUS_FIXAS['Pausada']:corParaStatus(statusAtual);
+      const nota=pausadoHoje?' · pausada neste período':(a.ativa===false?' · alocação encerrada':'');
+      return `<div class="agenda-chip" style="background:${cor};" title="${escapeHtml(label+' · '+statusAtual+nota)}">${escapeHtml(label)}</div>`;
+    }).join('');
+    const extra=doDia.length>limite?`<div class="agenda-mais">+${doDia.length-limite} mais</div>`:'';
+    const classeHoje=(hojeStr===dataAtual.toDateString())?' hoje':'';
+    html+=`<div class="agenda-dia${classeHoje}"><div class="agenda-numero">${dia}</div>${chips}${extra}</div>`;
+  }
+  grid.innerHTML=html;
+}
 function renderAgendaDoTecnico(){
   const tecnicoId=document.getElementById('sel-agenda-tecnico').value;
+  const resumoEl=document.getElementById('resumo-agenda-tecnico');
   const cont=document.getElementById('lista-agenda-tecnico');
-  if(!tecnicoId){cont.innerHTML='';return;}
-  const minhas=alocacoes.filter(a=>a.tecnicoId===tecnicoId).sort((a,b)=>new Date(b.dataInicio)-new Date(a.dataInicio));
-  if(!minhas.length){cont.innerHTML='<div style="color:var(--texto-suave);font-size:.85rem;">Nenhuma alocação registrada para este técnico.</div>';return;}
-  cont.innerHTML=minhas.map(a=>{
+  renderCalendarioTecnico(tecnicoId);
+  if(!tecnicoId){resumoEl.innerHTML='';cont.innerHTML='';return;}
+  const minhas=alocacoes.filter(a=>a.tecnicoId===tecnicoId);
+  if(!minhas.length){resumoEl.innerHTML='';cont.innerHTML='<div style="color:var(--texto-suave);font-size:.85rem;">Nenhuma alocação registrada para este técnico.</div>';return;}
+  const ativas=minhas.filter(a=>a.ativa!==false).sort((a,b)=>new Date(a.dataInicio)-new Date(b.dataInicio));
+  const encerradas=minhas.filter(a=>a.ativa===false).sort((a,b)=>new Date(b.finalizadoEm||b.dataFim||0)-new Date(a.finalizadoEm||a.dataFim||0));
+  resumoEl.innerHTML=`<b>${int(ativas.length)}</b> obra(s) ativa(s) · <b>${int(encerradas.length)}</b> encerrada(s)`;
+  function linhaAlocacao(a){
     const o=obraPorId(a.obraId);const c=o?clientePorId(o.clienteId):null;
     const label=o?((c?c.nome:'?')+' — '+o.nome):'(obra removida)';
     const situacao=a.ativa===false?'<span class="nota">encerrada</span>':'<span class="reg R1">ativa</span>';
     return `<div style="padding:7px 0;border-bottom:1px solid var(--areia-escura);font-size:.85rem;"><b>${escapeHtml(label)}</b> ${situacao}<br><span style="color:var(--texto-suave);font-size:.78rem;">${escapeHtml(periodoTexto(a))}${a.observacao?' · '+escapeHtml(a.observacao):''}</span></div>`;
-  }).join('');
+  }
+  cont.innerHTML=
+    `<div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin:10px 0 4px;">Atual / Futuras</div>`+
+    (ativas.length?ativas.map(linhaAlocacao).join(''):'<div style="color:var(--texto-suave);font-size:.82rem;">Nenhuma alocação ativa.</div>')+
+    `<div style="font-size:.72rem;text-transform:uppercase;color:var(--texto-suave);font-weight:700;margin:14px 0 4px;">Histórico</div>`+
+    (encerradas.length?encerradas.map(linhaAlocacao).join(''):'<div style="color:var(--texto-suave);font-size:.82rem;">Nenhuma alocação encerrada ainda.</div>');
 }
 document.getElementById('sel-agenda-tecnico').addEventListener('change',renderAgendaDoTecnico);
 document.getElementById('btn-checar-disponibilidade').addEventListener('click',()=>{
@@ -1326,12 +1404,11 @@ function renderObras(){
     const previsao=dataPrevistaConclusao(o);
     const semTecnico=obraSemTecnicoHoje(o);
     const avisoTecnico=semTecnico?` <span title="Nenhum técnico alocado hoje" style="color:var(--erro);font-weight:700;">⚠ sem técnico</span>`:'';
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}${avisoTecnico}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${previsao?fmtData(previsao):'—'}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;flex-wrap:wrap;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button><button class="btn ghost small" data-equipe-obra="${escapeHtml(o.id)}" type="button">equipe</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}${avisoTecnico}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${previsao?fmtData(previsao):'—'}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;flex-wrap:wrap;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
   }).join(''):`<tr><td colspan="${admin?9:8}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra encontrada.</td></tr>`;
   if(admin){
     tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
     tbody.querySelectorAll('[data-medicoes-obra]').forEach(b=>b.addEventListener('click',()=>abrirMedicoesObra(b.dataset.medicoesObra)));
-    tbody.querySelectorAll('[data-equipe-obra]').forEach(b=>b.addEventListener('click',()=>abrirEquipeObra(b.dataset.equipeObra)));
   }
   document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)'+(lista.length!==obras.length?` (de ${int(obras.length)})`:'');
 }
@@ -1445,6 +1522,8 @@ const ESQUEMAS={
     {chave:'status',label:'Status (calculado)',tipo:'statusComputado'},
     {chave:'pausas',label:'Pausas (início / retomada)',tipo:'pausasEditor',largo:true},
 
+    {chave:'equipeAcesso',label:'Técnicos Alocados',tipo:'equipeAcesso',largo:true,secaoAntes:'Equipe'},
+
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number',secaoAntes:'Financeiro'},
     {chave:'dataNegociacao',label:'Data da Negociação',tipo:'date'},
 
@@ -1533,6 +1612,8 @@ function campoHtmlGenerico(campo,valorAtual){
       `<span class="nota">Preencha aqui manualmente se a obra não veio de um orçamento, ou ajuste os valores importados. O botão acima só sugere os 3 campos abaixo — eles continuam editáveis.</span>`;
   }else if(campo.tipo==='cpfMask'){
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(formatarCPF(valorAtual||''))}" placeholder="000.000.000-00" maxlength="14" inputmode="numeric">`;
+  }else if(campo.tipo==='equipeAcesso'){
+    inputHtml=`<div id="${idc}__resumo" style="font-size:.82rem;color:var(--texto-suave);margin-bottom:8px;"></div><button type="button" class="btn ghost small" id="${idc}__abrir">Gerenciar Equipe</button>`;
   }else{
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(valorAtual==null?'':String(valorAtual))}">`;
   }
@@ -1741,6 +1822,19 @@ function abrirModal(entidade,id,seed){
       document.getElementById('campo-modal-pausas__obs').value='';
       renderListaPausasEditor();
     });
+    const btnEquipe=document.getElementById('campo-modal-equipeAcesso__abrir');
+    const resumoEquipe=document.getElementById('campo-modal-equipeAcesso__resumo');
+    if(btnEquipe&&resumoEquipe){
+      if(itemExistente){
+        const ativas=alocacoesAtivasDaObra(itemExistente.id);
+        resumoEquipe.textContent=ativas.length?ativas.length+' técnico(s) atualmente alocado(s).':'Nenhum técnico alocado ainda.';
+        btnEquipe.disabled=false;
+        btnEquipe.onclick=()=>{fecharModalRegistro();abrirEquipeObra(itemExistente.id);};
+      }else{
+        resumoEquipe.textContent='Salve a obra primeiro para gerenciar a equipe.';
+        btnEquipe.disabled=true;
+      }
+    }
     const elIni=document.getElementById('campo-modal-dataInicio');
     const elPrazo=document.getElementById('campo-modal-prazoDias');
     const elConcluida=document.getElementById('campo-modal-concluida');
@@ -1786,6 +1880,7 @@ function coletarCampos(entidade){
     if(campo.tipo==='tarefasEditor'){obj[campo.chave]=tarefasEmEdicao;return;}
     if(campo.tipo==='premiacaoEditor'){obj[campo.chave]=pagamentosEmEdicao;return;}
     if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
+    if(campo.tipo==='equipeAcesso'){return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
     if(campo.tipo==='boolean'){obj[campo.chave]=el.checked;return;}
@@ -2091,8 +2186,9 @@ function abrirEquipeObra(obraId){
   document.getElementById('status-equipe-obra').textContent='';
   document.getElementById('alerta-conflito-equipe').style.display='none';
   document.getElementById('obs-add-tecnico-equipe').value='';
-  document.getElementById('data-inicio-add-tecnico').value='';
-  document.getElementById('data-fim-add-tecnico').value='';
+  document.getElementById('data-inicio-add-tecnico').value=obra.dataInicio||'';
+  const previsao=dataPrevistaConclusao(obra);
+  document.getElementById('data-fim-add-tecnico').value=previsao?previsao.toISOString().slice(0,10):'';
   const sel=document.getElementById('sel-add-tecnico-equipe');
   sel.innerHTML=tecnicos.length?tecnicos.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)} (${escapeHtml(t.funcao||'—')})</option>`).join(''):'<option value="">Nenhum técnico cadastrado</option>';
   renderEquipeObra();

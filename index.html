@@ -2262,27 +2262,47 @@ document.getElementById('btn-add-tecnico-equipe').addEventListener('click',async
   }else{
     resultado=await criarAlocacao(obra.id,tecnicoId,dataInicio,dataFim,observacao,false);
   }
+  function limparCamposEfinalizar(mensagem){
+    saveCache();alertaEl.style.display='none';statusEl.textContent=mensagem;
+    substituindoAlocacaoId=null;
+    document.getElementById('data-inicio-add-tecnico').value='';document.getElementById('data-fim-add-tecnico').value='';document.getElementById('obs-add-tecnico-equipe').value='';
+    renderEquipeObra();renderAgenda();
+  }
   if(!resultado.ok&&resultado.conflitos&&resultado.conflitos.length){
-    alertaEl.style.display='block';
-    alertaEl.innerHTML=`⚠ <b>${escapeHtml(nomeTecnico(tecnicoId))}</b> já está alocado em: ${escapeHtml(textoConflitos(resultado.conflitos))}.<br><button class="btn danger small" id="btn-forcar-alocacao" type="button" style="margin-top:8px;">Alocar mesmo assim</button>`;
+    const conflitosMesmaObra=resultado.conflitos.filter(c=>c.obraId===obra.id);
+    const conflitosOutraObra=resultado.conflitos.filter(c=>c.obraId!==obra.id);
     statusEl.textContent='';
-    document.getElementById('btn-forcar-alocacao').addEventListener('click',async()=>{
+    alertaEl.style.display='block';
+    let html='';
+    if(conflitosMesmaObra.length){
+      html+=`⚠ <b>${escapeHtml(nomeTecnico(tecnicoId))}</b> já está alocado nesta mesma obra em: ${escapeHtml(textoConflitos(conflitosMesmaObra))}. Isso parece um reagendamento.<br><button class="btn primary small" id="btn-atualizar-periodo-equipe" type="button" style="margin-top:8px;">Atualizar período (substitui o agendamento atual)</button>`;
+    }
+    if(conflitosOutraObra.length){
+      html+=`${conflitosMesmaObra.length?'<br><br>':''}⚠ <b>${escapeHtml(nomeTecnico(tecnicoId))}</b> também está alocado em outra obra: ${escapeHtml(textoConflitos(conflitosOutraObra))}.<br><button class="btn danger small" id="btn-forcar-alocacao" type="button" style="margin-top:8px;">Alocar mesmo assim (técnico ficará em 2 obras nesse período)</button>`;
+    }
+    alertaEl.innerHTML=html;
+    const btnAtualizar=document.getElementById('btn-atualizar-periodo-equipe');
+    if(btnAtualizar)btnAtualizar.addEventListener('click',async()=>{
+      statusEl.textContent='⏳ atualizando período…';
+      for(const c of conflitosMesmaObra){
+        const okFim=await finalizarAlocacao(c.id,null,'substituída (reagendamento)');
+        if(!okFim){statusEl.textContent='⚠ não foi possível atualizar. Tente de novo.';return;}
+      }
+      const r2=substituindoAlocacaoId?await substituirTecnico(obra.id,substituindoAlocacaoId,tecnicoId,dataInicio,observacao,true):await criarAlocacao(obra.id,tecnicoId,dataInicio,dataFim,observacao,true);
+      if(r2.ok)limparCamposEfinalizar('✓ período atualizado.');
+      else statusEl.textContent='⚠ não foi possível salvar.';
+    });
+    const btnForcar=document.getElementById('btn-forcar-alocacao');
+    if(btnForcar)btnForcar.addEventListener('click',async()=>{
       statusEl.textContent='⏳ salvando…';
       const r2=substituindoAlocacaoId?await substituirTecnico(obra.id,substituindoAlocacaoId,tecnicoId,dataInicio,observacao,true):await criarAlocacao(obra.id,tecnicoId,dataInicio,dataFim,observacao,true);
-      if(r2.ok){
-        saveCache();alertaEl.style.display='none';statusEl.textContent='✓ alocado (com conflito reconhecido).';
-        substituindoAlocacaoId=null;
-        document.getElementById('data-inicio-add-tecnico').value='';document.getElementById('data-fim-add-tecnico').value='';document.getElementById('obs-add-tecnico-equipe').value='';
-        renderEquipeObra();renderAgenda();
-      }else statusEl.textContent='⚠ não foi possível salvar.';
+      if(r2.ok)limparCamposEfinalizar('✓ alocado (com conflito reconhecido).');
+      else statusEl.textContent='⚠ não foi possível salvar.';
     });
     return;
   }
   if(!resultado.ok){statusEl.textContent='⚠ não foi possível salvar.';return;}
-  saveCache();statusEl.textContent=substituindoAlocacaoId?'✓ técnico substituído.':'✓ técnico adicionado.';
-  substituindoAlocacaoId=null;
-  document.getElementById('data-inicio-add-tecnico').value='';document.getElementById('data-fim-add-tecnico').value='';document.getElementById('obs-add-tecnico-equipe').value='';
-  renderEquipeObra();renderAgenda();
+  limparCamposEfinalizar(substituindoAlocacaoId?'✓ técnico substituído.':'✓ técnico adicionado.');
 });
 
 /* ==================== MEDIÇÕES PARCIAIS (por tarefa, até 3 medições) ==================== */

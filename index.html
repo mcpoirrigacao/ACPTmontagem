@@ -254,7 +254,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
       <h3>Obras Pendentes <span class="h3-side">ainda não iniciadas</span></h3>
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Data de Início</th><th class="r">Dias entre negociação e início</th></tr></thead>
+          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Entrega de Material</th><th>Data de Início</th><th class="r">Dias entre negociação e início</th><th>Técnico(s) Alocado(s)</th></tr></thead>
           <tbody id="tbody-obras-pendentes"></tbody>
         </table>
       </div>
@@ -1099,7 +1099,9 @@ function renderObrasPendentes(){
     const faltaData=!o.dataNegociacao||!o.dataInicio;
     const dias=diasNegociacaoAteInicio(o);
     const textoDias=faltaData?'preencher data':int(dias)+' dia(s)';
-    return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${o.dataNegociacao?fmtData(o.dataNegociacao):'—'}</td><td>${o.dataInicio?fmtData(o.dataInicio):'—'}</td><td class="num" style="${faltaData?'color:var(--texto-suave);font-style:italic;':''}">${textoDias}</td></tr>`;
+    const tecs=alocacoesAtivasDaObra(o.id).map(a=>nomeTecnico(a.tecnicoId));
+    const tecsTexto=tecs.length?tecs.join(', '):'—';
+    return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${o.dataNegociacao?fmtData(o.dataNegociacao):'—'}</td><td>${o.dataEntregaMaterial?fmtData(o.dataEntregaMaterial):'—'}</td><td>${o.dataInicio?fmtData(o.dataInicio):'—'}</td><td class="num" style="${faltaData?'color:var(--texto-suave);font-style:italic;':''}">${textoDias}</td><td>${escapeHtml(tecsTexto)}</td></tr>`;
   }).join('');
   card.style.display='';
 }
@@ -1526,6 +1528,7 @@ const ESQUEMAS={
 
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number',secaoAntes:'Financeiro'},
     {chave:'dataNegociacao',label:'Data da Negociação',tipo:'date'},
+    {chave:'dataEntregaMaterial',label:'Entrega de Material',tipo:'date'},
 
     {chave:'qtdLances',label:'QTD Lances',tipo:'number',secaoAntes:'Métricas Técnicas'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},

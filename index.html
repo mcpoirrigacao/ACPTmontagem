@@ -239,7 +239,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <div class="card">
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Atraso</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Atraso</th><th>Previsão de Término</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
           <tbody id="tbody-obras"></tbody>
         </table>
       </div>
@@ -259,6 +259,15 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
         </table>
       </div>
     </div>
+    <div class="card" id="card-obras-sem-tecnico" style="display:none;">
+      <h3>Obras sem Técnico Hoje <span class="h3-side">em andamento, sem ninguém alocado</span></h3>
+      <div class="tablewrap">
+        <table class="dt">
+          <thead><tr><th>Obra</th><th>Status</th></tr></thead>
+          <tbody id="tbody-obras-sem-tecnico"></tbody>
+        </table>
+      </div>
+    </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn ghost small" id="btn-agenda-ant" type="button">‹ Mês anterior</button>
       <h3 id="titulo-agenda" style="margin:0;font-family:var(--fonte-titulo);color:var(--azul-escuro);min-width:160px;text-align:center;"></h3>
@@ -267,6 +276,21 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     </div>
     <div class="card">
       <div class="agenda-grid" id="grid-agenda"></div>
+    </div>
+    <div class="card">
+      <h3>Agenda por Técnico <span class="h3-side">obras em que a pessoa está alocada</span></h3>
+      <select id="sel-agenda-tecnico" style="max-width:320px;"><option value="">Selecione um técnico...</option></select>
+      <div id="lista-agenda-tecnico" style="margin-top:12px;"></div>
+    </div>
+    <div class="card">
+      <h3>Disponibilidade de Técnicos <span class="h3-side">quem está livre num período</span></h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input type="date" id="disp-data-de" title="De">
+        <input type="date" id="disp-data-ate" title="Até">
+        <button class="btn ghost small" id="btn-checar-disponibilidade" type="button">Verificar</button>
+        <button class="btn ghost small" id="btn-exportar-disponibilidade" type="button">⬇ Exportar Excel</button>
+      </div>
+      <div id="lista-disponibilidade" style="margin-top:12px;"></div>
     </div>
   </section>
 
@@ -486,6 +510,32 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     </div>
   </div>
 </div>
+<div class="overlay" id="overlay-equipe-obra">
+  <div class="box" style="max-width:720px;width:97%;text-align:left;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;">
+      <h2 id="titulo-equipe-obra" style="margin:0;">Equipe da Obra</h2>
+      <button class="btn ghost small" id="btn-fechar-equipe-obra" type="button">✕ Fechar</button>
+    </div>
+    <p class="pane-desc" style="margin:0 0 12px;">Técnicos alocados nesta obra, por período. O mesmo técnico não pode ficar alocado em duas obras no mesmo período — o app avisa se detectar isso.</p>
+    <div id="lista-equipe-atual"></div>
+    <div class="card" style="padding:14px;margin-top:14px;">
+      <h3 style="margin-bottom:10px;">Adicionar Técnico</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Técnico</label><select id="sel-add-tecnico-equipe" style="min-width:180px;"></select></div>
+        <div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Início</label><input type="date" id="data-inicio-add-tecnico"></div>
+        <div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Fim (opcional)</label><input type="date" id="data-fim-add-tecnico"></div>
+        <button class="btn primary small" id="btn-add-tecnico-equipe" type="button">+ Adicionar</button>
+      </div>
+      <input type="text" id="obs-add-tecnico-equipe" placeholder="Observação (opcional)" style="width:100%;margin-top:8px;">
+      <div id="status-equipe-obra" style="font-size:.8rem;margin-top:8px;"></div>
+      <div id="alerta-conflito-equipe" style="display:none;margin-top:10px;padding:10px;border-radius:6px;background:#fdecea;border:1px solid var(--erro);font-size:.82rem;"></div>
+    </div>
+    <div class="card" style="padding:14px;margin-top:14px;">
+      <h3 style="margin-bottom:10px;">Histórico</h3>
+      <div id="lista-equipe-historico" style="font-size:.82rem;color:var(--texto-suave);"></div>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -523,11 +573,11 @@ function gerarId(prefixo){return prefixo+'_'+Date.now().toString(36)+Math.random
 
 /* ============================ ESTADO (cache local) ============================ */
 const STORE_KEY='maqcampo-mcpo-v3';
-let clientes=[],obras=[],lancamentos=[],tecnicos=[];
+let clientes=[],obras=[],lancamentos=[],tecnicos=[],alocacoes=[];
 let ultimaSync=null,ultimoErro=null;
 function loadCache(){try{const raw=localStorage.getItem(STORE_KEY);if(raw){const o=JSON.parse(raw);if(o)return o;}}catch(e){}return null;}
-function saveCache(){try{localStorage.setItem(STORE_KEY,JSON.stringify({clientes,obras,lancamentos,tecnicos,ultimaSync}));}catch(e){}}
-(function initCache(){const c=loadCache();if(c){clientes=c.clientes||[];obras=c.obras||[];lancamentos=c.lancamentos||[];tecnicos=c.tecnicos||[];ultimaSync=c.ultimaSync||null;}})();
+function saveCache(){try{localStorage.setItem(STORE_KEY,JSON.stringify({clientes,obras,lancamentos,tecnicos,alocacoes,ultimaSync}));}catch(e){}}
+(function initCache(){const c=loadCache();if(c){clientes=c.clientes||[];obras=c.obras||[];lancamentos=c.lancamentos||[];tecnicos=c.tecnicos||[];alocacoes=c.alocacoes||[];ultimaSync=c.ultimaSync||null;}})();
 
 /* ============================ TAREFAS DE MONTAGEM (TMO) — valores extraídos do app de orçamentação ============================ */
 const TASKS_TMO_PADRAO=[
@@ -873,6 +923,59 @@ function diaEmPausa(obra,dataAtual){
     return dataAtual>=piDia&&dataAtual<=pfDia;
   });
 }
+/* ============================ ALOCAÇÃO DE TÉCNICOS ============================
+   Cada alocação liga um técnico a uma obra por um período (dataFim null = ainda em andamento).
+   Nunca é apagada de fato: remover/substituir marca ativa=false e guarda quando/por quê,
+   preservando o histórico. Conflito = mesmo técnico com 2 alocações ATIVAS cujos períodos se cruzam. */
+function diaZerado(v){const d=v instanceof Date?v:new Date(v);if(isNaN(d))return null;return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
+function periodosSeSobrepoem(iniA,fimA,iniB,fimB){
+  const a1=diaZerado(iniA),a2=fimA?diaZerado(fimA):null;
+  const b1=diaZerado(iniB),b2=fimB?diaZerado(fimB):null;
+  if(!a1||!b1)return false;
+  if(b2&&a1>b2)return false;
+  if(a2&&a2<b1)return false;
+  return true;
+}
+function alocacoesAtivas(){return alocacoes.filter(a=>a.ativa!==false);}
+function alocacoesAtivasDaObra(obraId){return alocacoesAtivas().filter(a=>a.obraId===obraId);}
+function alocacoesAtivasDoTecnico(tecnicoId){return alocacoesAtivas().filter(a=>a.tecnicoId===tecnicoId);}
+function alocacoesDaObraOrdenadas(obraId){return alocacoes.filter(a=>a.obraId===obraId).sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0));}
+function conflitosDeAlocacao(tecnicoId,dataInicio,dataFim,ignorarAlocacaoId){
+  return alocacoesAtivasDoTecnico(tecnicoId).filter(a=>a.id!==ignorarAlocacaoId&&periodosSeSobrepoem(dataInicio,dataFim,a.dataInicio,a.dataFim));
+}
+async function criarAlocacao(obraId,tecnicoId,dataInicio,dataFim,observacao,forcar){
+  const conflitos=conflitosDeAlocacao(tecnicoId,dataInicio,dataFim,null);
+  if(conflitos.length&&!forcar)return {ok:false,conflitos};
+  const nova={id:gerarId('al'),obraId,tecnicoId,dataInicio,dataFim:dataFim||null,ativa:true,observacao:observacao||'',criadoEm:new Date().toISOString(),historico:[{acao:'criada',em:new Date().toISOString()}]};
+  alocacoes.push(nova);
+  const ok=await salvarColecao('alocacoes');
+  if(!ok)alocacoes=alocacoes.filter(a=>a.id!==nova.id);
+  return {ok,conflitos,alocacao:nova};
+}
+async function finalizarAlocacao(alocacaoId,dataFimEscolhida,motivo){
+  const a=alocacoes.find(x=>x.id===alocacaoId);
+  if(!a)return false;
+  const antes=Object.assign({},a);
+  a.ativa=false;
+  a.dataFim=dataFimEscolhida||a.dataFim||new Date().toISOString().slice(0,10);
+  a.finalizadoEm=new Date().toISOString();
+  a.historico=(a.historico||[]).concat([{acao:motivo||'removida',em:new Date().toISOString()}]);
+  const ok=await salvarColecao('alocacoes');
+  if(!ok)Object.assign(a,antes);
+  return ok;
+}
+async function substituirTecnico(obraId,alocacaoAntigaId,novoTecnicoId,dataTroca,observacao,forcar){
+  const dataFinal=dataTroca||new Date().toISOString().slice(0,10);
+  const okFim=await finalizarAlocacao(alocacaoAntigaId,dataFinal,'substituída');
+  if(!okFim)return {ok:false,conflitos:[]};
+  return await criarAlocacao(obraId,novoTecnicoId,dataFinal,null,observacao,forcar);
+}
+function disponibilidadeTecnicosNoPeriodo(dataInicio,dataFim){
+  return tecnicos.map(t=>{
+    const conflitos=conflitosDeAlocacao(t.id,dataInicio,dataFim,null);
+    return {tecnico:t,disponivel:conflitos.length===0,conflitos};
+  });
+}
 /* Status "efetivo" da obra: sempre calculado a partir das datas/pausas/conclusão.
    Só recorre ao campo status antigo (legado/migração) quando não há Data de Início definida —
    nesse caso não há como calcular nada, então mantém o que já existia. */
@@ -963,8 +1066,20 @@ function renderObrasPendentes(){
   }).join('');
   card.style.display='';
 }
+function renderObrasSemTecnico(){
+  const card=document.getElementById('card-obras-sem-tecnico');
+  const emFalta=obras.filter(o=>!o.concluida&&obraSemTecnicoHoje(o));
+  if(!emFalta.length){card.style.display='none';return;}
+  document.getElementById('tbody-obras-sem-tecnico').innerHTML=emFalta.map(o=>{
+    const c=clientePorId(o.clienteId);
+    return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td></tr>`;
+  }).join('');
+  card.style.display='';
+}
 function renderAgenda(){
   renderObrasPendentes();
+  renderObrasSemTecnico();
+  renderSeletorAgendaTecnico();
   const nomesMes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   document.getElementById('titulo-agenda').textContent=nomesMes[agendaMes]+' de '+agendaAno;
   const primeiroDiaSemana=new Date(agendaAno,agendaMes,1).getDay();
@@ -1001,6 +1116,67 @@ function renderAgenda(){
     el.addEventListener('click',()=>abrirDiaAgenda(Number(el.dataset.dia)));
   });
 }
+function tecnicosAlocadosNaObraEmData(obraId,data){
+  return alocacoesAtivasDaObra(obraId).filter(a=>periodosSeSobrepoem(data,data,a.dataInicio,a.dataFim));
+}
+function renderSeletorAgendaTecnico(){
+  const sel=document.getElementById('sel-agenda-tecnico');
+  const valorAtual=sel.value;
+  sel.innerHTML='<option value="">Selecione um técnico...</option>'+[...tecnicos].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)} (${escapeHtml(t.funcao||'—')})</option>`).join('');
+  sel.value=valorAtual;
+  renderAgendaDoTecnico();
+}
+function renderAgendaDoTecnico(){
+  const tecnicoId=document.getElementById('sel-agenda-tecnico').value;
+  const cont=document.getElementById('lista-agenda-tecnico');
+  if(!tecnicoId){cont.innerHTML='';return;}
+  const minhas=alocacoes.filter(a=>a.tecnicoId===tecnicoId).sort((a,b)=>new Date(b.dataInicio)-new Date(a.dataInicio));
+  if(!minhas.length){cont.innerHTML='<div style="color:var(--texto-suave);font-size:.85rem;">Nenhuma alocação registrada para este técnico.</div>';return;}
+  cont.innerHTML=minhas.map(a=>{
+    const o=obraPorId(a.obraId);const c=o?clientePorId(o.clienteId):null;
+    const label=o?((c?c.nome:'?')+' — '+o.nome):'(obra removida)';
+    const situacao=a.ativa===false?'<span class="nota">encerrada</span>':'<span class="reg R1">ativa</span>';
+    return `<div style="padding:7px 0;border-bottom:1px solid var(--areia-escura);font-size:.85rem;"><b>${escapeHtml(label)}</b> ${situacao}<br><span style="color:var(--texto-suave);font-size:.78rem;">${escapeHtml(periodoTexto(a))}${a.observacao?' · '+escapeHtml(a.observacao):''}</span></div>`;
+  }).join('');
+}
+document.getElementById('sel-agenda-tecnico').addEventListener('change',renderAgendaDoTecnico);
+document.getElementById('btn-checar-disponibilidade').addEventListener('click',()=>{
+  const de=document.getElementById('disp-data-de').value,ate=document.getElementById('disp-data-ate').value;
+  const cont=document.getElementById('lista-disponibilidade');
+  if(!de){toast('Informe pelo menos a data inicial.');return;}
+  const resultado=disponibilidadeTecnicosNoPeriodo(de,ate||de);
+  if(!resultado.length){cont.innerHTML='<div style="color:var(--texto-suave);font-size:.85rem;">Nenhum técnico cadastrado.</div>';return;}
+  const livres=resultado.filter(r=>r.disponivel),ocupados=resultado.filter(r=>!r.disponivel);
+  cont.innerHTML=
+    `<div style="margin-bottom:10px;"><b>Livres (${livres.length}):</b> ${livres.length?livres.map(r=>escapeHtml(r.tecnico.nome)).join(', '):'nenhum'}</div>`+
+    (ocupados.length?`<div><b>Ocupados (${ocupados.length}):</b></div>`+ocupados.map(r=>`<div style="padding:5px 0;border-bottom:1px solid var(--areia-escura);font-size:.82rem;">${escapeHtml(r.tecnico.nome)} — ${escapeHtml(textoConflitos(r.conflitos))}</div>`).join(''):'');
+});
+document.getElementById('btn-exportar-disponibilidade').addEventListener('click',async()=>{
+  const de=document.getElementById('disp-data-de').value,ate=document.getElementById('disp-data-ate').value;
+  if(!de){toast('Informe pelo menos a data inicial antes de exportar.');return;}
+  const resultado=disponibilidadeTecnicosNoPeriodo(de,ate||de);
+  if(!resultado.length){toast('Nenhum técnico cadastrado para exportar.');return;}
+  const btn=document.getElementById('btn-exportar-disponibilidade');
+  const textoOriginal=btn.textContent;btn.textContent='⏳ gerando...';btn.disabled=true;
+  try{
+    await loadSheetJs();
+    const linhas=resultado.map(r=>({
+      Técnico:r.tecnico.nome,
+      Função:r.tecnico.funcao||'—',
+      CPF:r.tecnico.cpf||'—',
+      Status:r.disponivel?'Livre':'Ocupado',
+      'Obra(s) conflitante(s)':r.disponivel?'':textoConflitos(r.conflitos),
+    }));
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.json_to_sheet(linhas);
+    XLSX.utils.book_append_sheet(wb,ws,'Disponibilidade');
+    XLSX.writeFile(wb,'disponibilidade_'+de+(ate&&ate!==de?'_a_'+ate:'')+'.xlsx');
+  }catch(e){
+    toast('Não foi possível gerar o Excel (biblioteca não carregou). Confira a conexão.');
+  }finally{
+    btn.textContent=textoOriginal;btn.disabled=false;
+  }
+});
 function abrirDiaAgenda(dia){
   const dataAtual=new Date(agendaAno,agendaMes,dia);
   const itensObra=obrasNoIntervalo();
@@ -1022,19 +1198,28 @@ function abrirDiaAgenda(dia){
       const pausadoHoje=diaEmPausa(x.obra,dataAtual);
       const cor=pausadoHoje?CORES_STATUS_FIXAS['Pausada']:corParaStatus(statusAtual);
       const notaPausa=pausadoHoje?' (pausada neste período)':'';
+      const tecs=tecnicosAlocadosNaObraEmData(x.obra.id,dataAtual);
+      const tecsTexto=tecs.length?tecs.map(a=>nomeTecnico(a.tecnicoId)+' ('+funcaoTecnico(a.tecnicoId)+')').join(', '):'nenhum técnico alocado';
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--areia-escura);">
         <span style="width:10px;height:10px;border-radius:50%;background:${cor};flex:0 0 auto;"></span>
         <div style="flex:1;">
           <div style="font-size:.86rem;font-weight:600;">${escapeHtml(label)}</div>
           <div style="font-size:.74rem;color:var(--texto-suave);">${escapeHtml(statusAtual)}${escapeHtml(notaPausa)}</div>
+          <div style="font-size:.74rem;color:var(--texto-suave);">👷 ${escapeHtml(tecsTexto)}</div>
         </div>
-        ${admin?`<button class="btn ghost small" data-editar-obra-dia="${escapeHtml(x.obra.id)}" type="button">editar</button>`:''}
+        ${admin?`<button class="btn ghost small" data-equipe-obra-dia="${escapeHtml(x.obra.id)}" type="button">equipe</button><button class="btn ghost small" data-editar-obra-dia="${escapeHtml(x.obra.id)}" type="button">editar</button>`:''}
       </div>`;
     }).join('');
-    if(admin)cont.querySelectorAll('[data-editar-obra-dia]').forEach(b=>b.addEventListener('click',()=>{
-      fecharDiaAgenda();
-      abrirModal('obra',b.dataset.editarObraDia);
-    }));
+    if(admin){
+      cont.querySelectorAll('[data-editar-obra-dia]').forEach(b=>b.addEventListener('click',()=>{
+        fecharDiaAgenda();
+        abrirModal('obra',b.dataset.editarObraDia);
+      }));
+      cont.querySelectorAll('[data-equipe-obra-dia]').forEach(b=>b.addEventListener('click',()=>{
+        fecharDiaAgenda();
+        abrirEquipeObra(b.dataset.equipeObraDia);
+      }));
+    }
   }
   document.getElementById('overlay-dia-agenda').style.display='flex';
 }
@@ -1118,6 +1303,12 @@ document.getElementById('btn-limpar-filtros-obras').addEventListener('click',()=
   filtroObrasCliente='';filtroObrasNomeTexto='';filtroObrasId='';filtroObrasStatus='';
   renderFiltrosObras();renderObras();
 });
+function obraSemTecnicoHoje(obra){
+  const status=statusEfetivo(obra);
+  if(status!=='Em andamento'&&status!=='Andamento Atrasada')return false;
+  const hoje=new Date();const hojeZerado=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  return tecnicosAlocadosNaObraEmData(obra.id,hojeZerado).length===0;
+}
 function renderObras(){
   const admin=souAdmin();
   document.getElementById('btn-nova-obra').style.display=admin?'':'none';
@@ -1132,11 +1323,15 @@ function renderObras(){
     const qtdLanc=lancamentos.filter(l=>l.obraId===o.id).length;
     const dAtraso=diasAtraso(o);
     const corAtraso=(dAtraso!==null&&dAtraso>0)?'color:var(--erro);font-weight:700;':'';
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
-  }).join(''):`<tr><td colspan="${admin?8:7}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra encontrada.</td></tr>`;
+    const previsao=dataPrevistaConclusao(o);
+    const semTecnico=obraSemTecnicoHoje(o);
+    const avisoTecnico=semTecnico?` <span title="Nenhum técnico alocado hoje" style="color:var(--erro);font-weight:700;">⚠ sem técnico</span>`:'';
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}${avisoTecnico}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${previsao?fmtData(previsao):'—'}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;flex-wrap:wrap;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button><button class="btn ghost small" data-equipe-obra="${escapeHtml(o.id)}" type="button">equipe</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
+  }).join(''):`<tr><td colspan="${admin?9:8}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra encontrada.</td></tr>`;
   if(admin){
     tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
     tbody.querySelectorAll('[data-medicoes-obra]').forEach(b=>b.addEventListener('click',()=>abrirMedicoesObra(b.dataset.medicoesObra)));
+    tbody.querySelectorAll('[data-equipe-obra]').forEach(b=>b.addEventListener('click',()=>abrirEquipeObra(b.dataset.equipeObra)));
   }
   document.getElementById('contagem-obras').textContent=int(lista.length)+' obra(s)'+(lista.length!==obras.length?` (de ${int(obras.length)})`:'');
 }
@@ -1714,11 +1909,12 @@ const CLIENTES_FILE='mcpo_clientes.json';
 const OBRAS_FILE='mcpo_obras.json';
 const LANCAMENTOS_FILE='mcpo_lancamentos.json';
 const TECNICOS_FILE='mcpo_tecnicos.json';
+const ALOCACOES_FILE='mcpo_alocacoes.json';
 const TAREFAS_TMO_FILE='mcpo_tarefas_tmo.json';
 
 let msalInstance=null,msAccount=null,msalReady=false;
 let acesso={emailsAutorizados:[],emailsComuns:[]};
-let acessoEtag=null,etagClientes=null,etagObras=null,etagLancamentos=null,etagTecnicos=null;
+let acessoEtag=null,etagClientes=null,etagObras=null,etagLancamentos=null,etagTecnicos=null,etagAlocacoes=null;
 function spEncodePath(p){return p.split('/').map(s=>encodeURIComponent(s)).join('/');}
 function spPath(f){return `/${SP_BIBLIOTECA}/${SP_PASTA}/${f}`;}
 let _siteId=null;
@@ -1883,6 +2079,116 @@ document.getElementById('btn-exportar-excel-premiacao').addEventListener('click'
   }
 });
 
+/* ==================== EQUIPE DA OBRA (alocação de técnicos, com detecção de conflito) ==================== */
+let obraEquipeAtual=null;
+function abrirEquipeObra(obraId){
+  if(!souAdmin()){toast('Somente administradores podem gerenciar a equipe.');return;}
+  const obra=obras.find(o=>o.id===obraId);
+  if(!obra)return;
+  obraEquipeAtual=obraId;
+  const c=clientePorId(obra.clienteId);
+  document.getElementById('titulo-equipe-obra').textContent='Equipe — '+(c?c.nome:'?')+' — '+obra.nome;
+  document.getElementById('status-equipe-obra').textContent='';
+  document.getElementById('alerta-conflito-equipe').style.display='none';
+  document.getElementById('obs-add-tecnico-equipe').value='';
+  document.getElementById('data-inicio-add-tecnico').value='';
+  document.getElementById('data-fim-add-tecnico').value='';
+  const sel=document.getElementById('sel-add-tecnico-equipe');
+  sel.innerHTML=tecnicos.length?tecnicos.map(t=>`<option value="${escapeHtml(t.id)}">${escapeHtml(t.nome)} (${escapeHtml(t.funcao||'—')})</option>`).join(''):'<option value="">Nenhum técnico cadastrado</option>';
+  renderEquipeObra();
+  document.getElementById('overlay-equipe-obra').style.display='flex';
+}
+function fecharEquipeObra(){document.getElementById('overlay-equipe-obra').style.display='none';obraEquipeAtual=null;}
+document.getElementById('btn-fechar-equipe-obra').addEventListener('click',fecharEquipeObra);
+function nomeTecnico(id){const t=tecnicos.find(x=>x.id===id);return t?t.nome:'(técnico removido)';}
+function funcaoTecnico(id){const t=tecnicos.find(x=>x.id===id);return t?(t.funcao||'—'):'—';}
+function periodoTexto(a){return fmtData(a.dataInicio)+' → '+(a.dataFim?fmtData(a.dataFim):'em andamento');}
+function renderEquipeObra(){
+  const obra=obras.find(o=>o.id===obraEquipeAtual);
+  if(!obra)return;
+  const ativas=alocacoesAtivasDaObra(obra.id).sort((a,b)=>new Date(a.dataInicio)-new Date(b.dataInicio));
+  const cont=document.getElementById('lista-equipe-atual');
+  cont.innerHTML=ativas.length?ativas.map(a=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--areia-escura);">
+      <div style="flex:1;">
+        <div style="font-size:.86rem;font-weight:600;">${escapeHtml(nomeTecnico(a.tecnicoId))} <span class="reg R1">${escapeHtml(funcaoTecnico(a.tecnicoId))}</span></div>
+        <div style="font-size:.74rem;color:var(--texto-suave);">${escapeHtml(periodoTexto(a))}${a.observacao?' · '+escapeHtml(a.observacao):''}</div>
+      </div>
+      <button class="btn ghost small" data-substituir-alocacao="${escapeHtml(a.id)}" type="button">Substituir</button>
+      <button class="btn danger small" data-remover-alocacao="${escapeHtml(a.id)}" type="button">Remover</button>
+    </div>`).join(''):`<div style="color:var(--texto-suave);font-size:.85rem;">Nenhum técnico alocado nesta obra.</div>`;
+  cont.querySelectorAll('[data-remover-alocacao]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!(await confirmarAcao('Remover '+nomeTecnico(alocacoes.find(x=>x.id===b.dataset.removerAlocacao).tecnicoId)+' desta obra? O período fica registrado no histórico.')))return;
+    const statusEl=document.getElementById('status-equipe-obra');
+    statusEl.textContent='⏳ removendo…';
+    const ok=await finalizarAlocacao(b.dataset.removerAlocacao,new Date().toISOString().slice(0,10),'removida');
+    statusEl.textContent=ok?'✓ removido.':'⚠ não foi possível remover.';
+    if(ok){saveCache();renderEquipeObra();}
+  }));
+  cont.querySelectorAll('[data-substituir-alocacao]').forEach(b=>b.addEventListener('click',()=>iniciarSubstituicao(b.dataset.substituirAlocacao)));
+  const hist=alocacoes.filter(a=>a.obraId===obra.id&&a.ativa===false).sort((a,b)=>new Date(b.finalizadoEm||0)-new Date(a.finalizadoEm||0));
+  document.getElementById('lista-equipe-historico').innerHTML=hist.length?hist.map(a=>{
+    const motivo=(a.historico&&a.historico.length)?a.historico[a.historico.length-1].acao:'removida';
+    return `<div style="padding:5px 0;border-bottom:1px solid var(--areia-escura);">${escapeHtml(nomeTecnico(a.tecnicoId))} — ${escapeHtml(periodoTexto(a))} <span class="nota">(${escapeHtml(motivo)}${a.finalizadoEm?' em '+fmtData(a.finalizadoEm):''})</span></div>`;
+  }).join(''):'<div>Nenhuma alteração registrada ainda.</div>';
+}
+function textoConflitos(conflitos){
+  return conflitos.map(c=>{
+    const o=obraPorId(c.obraId);const cli=o?clientePorId(o.clienteId):null;
+    return (cli?cli.nome:'?')+' — '+(o?o.nome:'?')+' ('+periodoTexto(c)+')';
+  }).join('; ');
+}
+let substituindoAlocacaoId=null;
+function iniciarSubstituicao(alocacaoId){
+  substituindoAlocacaoId=alocacaoId;
+  const a=alocacoes.find(x=>x.id===alocacaoId);
+  toast('Escolha o novo técnico e clique em "Adicionar" — vai substituir '+nomeTecnico(a.tecnicoId)+' a partir de hoje.');
+  document.getElementById('data-inicio-add-tecnico').value=new Date().toISOString().slice(0,10);
+  document.getElementById('sel-add-tecnico-equipe').focus();
+}
+document.getElementById('btn-add-tecnico-equipe').addEventListener('click',async()=>{
+  const obra=obras.find(o=>o.id===obraEquipeAtual);
+  if(!obra)return;
+  const tecnicoId=document.getElementById('sel-add-tecnico-equipe').value;
+  const dataInicio=document.getElementById('data-inicio-add-tecnico').value;
+  const dataFim=document.getElementById('data-fim-add-tecnico').value;
+  const observacao=document.getElementById('obs-add-tecnico-equipe').value;
+  const statusEl=document.getElementById('status-equipe-obra');
+  const alertaEl=document.getElementById('alerta-conflito-equipe');
+  alertaEl.style.display='none';
+  if(!tecnicoId){toast('Selecione um técnico.');return;}
+  if(!dataInicio){toast('Informe a data de início.');return;}
+  if(dataFim&&dataFim<dataInicio){toast('A data de fim não pode ser antes da data de início.');return;}
+  statusEl.textContent='⏳ verificando disponibilidade…';
+  let resultado;
+  if(substituindoAlocacaoId){
+    resultado=await substituirTecnico(obra.id,substituindoAlocacaoId,tecnicoId,dataInicio,observacao,false);
+  }else{
+    resultado=await criarAlocacao(obra.id,tecnicoId,dataInicio,dataFim,observacao,false);
+  }
+  if(!resultado.ok&&resultado.conflitos&&resultado.conflitos.length){
+    alertaEl.style.display='block';
+    alertaEl.innerHTML=`⚠ <b>${escapeHtml(nomeTecnico(tecnicoId))}</b> já está alocado em: ${escapeHtml(textoConflitos(resultado.conflitos))}.<br><button class="btn danger small" id="btn-forcar-alocacao" type="button" style="margin-top:8px;">Alocar mesmo assim</button>`;
+    statusEl.textContent='';
+    document.getElementById('btn-forcar-alocacao').addEventListener('click',async()=>{
+      statusEl.textContent='⏳ salvando…';
+      const r2=substituindoAlocacaoId?await substituirTecnico(obra.id,substituindoAlocacaoId,tecnicoId,dataInicio,observacao,true):await criarAlocacao(obra.id,tecnicoId,dataInicio,dataFim,observacao,true);
+      if(r2.ok){
+        saveCache();alertaEl.style.display='none';statusEl.textContent='✓ alocado (com conflito reconhecido).';
+        substituindoAlocacaoId=null;
+        document.getElementById('data-inicio-add-tecnico').value='';document.getElementById('data-fim-add-tecnico').value='';document.getElementById('obs-add-tecnico-equipe').value='';
+        renderEquipeObra();renderAgenda();
+      }else statusEl.textContent='⚠ não foi possível salvar.';
+    });
+    return;
+  }
+  if(!resultado.ok){statusEl.textContent='⚠ não foi possível salvar.';return;}
+  saveCache();statusEl.textContent=substituindoAlocacaoId?'✓ técnico substituído.':'✓ técnico adicionado.';
+  substituindoAlocacaoId=null;
+  document.getElementById('data-inicio-add-tecnico').value='';document.getElementById('data-fim-add-tecnico').value='';document.getElementById('obs-add-tecnico-equipe').value='';
+  renderEquipeObra();renderAgenda();
+});
+
 /* ==================== MEDIÇÕES PARCIAIS (por tarefa, até 3 medições) ==================== */
 let obraMedicoesAtual=null;
 let medicaoSelecionada=0;
@@ -1900,8 +2206,9 @@ function abrirMedicoesObra(obraId){
   document.getElementById('titulo-medicoes-obra').textContent=(c?c.nome:'?')+' — '+obra.nome;
   document.getElementById('status-medicoes-obra').textContent='';
   const montadores=tecnicos.filter(t=>t.funcao==='Montador'),auxiliares=tecnicos.filter(t=>t.funcao==='Auxiliar');
-  document.getElementById('check-tecnicos-montador-medicao').innerHTML=montadores.length?montadores.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico-med="montador">${escapeHtml(t.nome)}</label>`).join(''):'<span class="nota">Nenhum montador cadastrado.</span>';
-  document.getElementById('check-tecnicos-auxiliar-medicao').innerHTML=auxiliares.length?auxiliares.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico-med="auxiliar">${escapeHtml(t.nome)}</label>`).join(''):'<span class="nota">Nenhum auxiliar cadastrado.</span>';
+  const alocadosHoje=new Set(tecnicosAlocadosNaObraEmData(obra.id,new Date()).map(a=>a.tecnicoId));
+  document.getElementById('check-tecnicos-montador-medicao').innerHTML=montadores.length?montadores.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico-med="montador" ${alocadosHoje.has(t.id)?'checked':''}>${escapeHtml(t.nome)}${alocadosHoje.has(t.id)?' <span class=\"nota\">(alocado nesta obra)</span>':''}</label>`).join(''):'<span class="nota">Nenhum montador cadastrado.</span>';
+  document.getElementById('check-tecnicos-auxiliar-medicao').innerHTML=auxiliares.length?auxiliares.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico-med="auxiliar" ${alocadosHoje.has(t.id)?'checked':''}>${escapeHtml(t.nome)}${alocadosHoje.has(t.id)?' <span class=\"nota\">(alocado nesta obra)</span>':''}</label>`).join(''):'<span class="nota">Nenhum auxiliar cadastrado.</span>';
   renderAbasMedicao();
   renderGridMedicao();
   document.getElementById('overlay-medicoes-obra').style.display='flex';
@@ -2152,10 +2459,10 @@ async function carregarColecao(nomeArquivo){
 }
 async function salvarColecao(qual){
   await ensureFolder();
-  const arquivo=qual==='clientes'?CLIENTES_FILE:qual==='obras'?OBRAS_FILE:qual==='tecnicos'?TECNICOS_FILE:LANCAMENTOS_FILE;
-  function getArr(){return qual==='clientes'?clientes:qual==='obras'?obras:qual==='tecnicos'?tecnicos:lancamentos;}
-  function setArr(v){if(qual==='clientes')clientes=v;else if(qual==='obras')obras=v;else if(qual==='tecnicos')tecnicos=v;else lancamentos=v;}
-  let etagAtual=qual==='clientes'?etagClientes:qual==='obras'?etagObras:qual==='tecnicos'?etagTecnicos:etagLancamentos;
+  const arquivo=qual==='clientes'?CLIENTES_FILE:qual==='obras'?OBRAS_FILE:qual==='tecnicos'?TECNICOS_FILE:qual==='alocacoes'?ALOCACOES_FILE:LANCAMENTOS_FILE;
+  function getArr(){return qual==='clientes'?clientes:qual==='obras'?obras:qual==='tecnicos'?tecnicos:qual==='alocacoes'?alocacoes:lancamentos;}
+  function setArr(v){if(qual==='clientes')clientes=v;else if(qual==='obras')obras=v;else if(qual==='tecnicos')tecnicos=v;else if(qual==='alocacoes')alocacoes=v;else lancamentos=v;}
+  let etagAtual=qual==='clientes'?etagClientes:qual==='obras'?etagObras:qual==='tecnicos'?etagTecnicos:qual==='alocacoes'?etagAlocacoes:etagLancamentos;
   let ok=false,tent=0;
   while(tent<5&&!ok){
     tent++;
@@ -2171,7 +2478,7 @@ async function salvarColecao(qual){
       }else break;
     }else break;
   }
-  if(qual==='clientes')etagClientes=etagAtual;else if(qual==='obras')etagObras=etagAtual;else if(qual==='tecnicos')etagTecnicos=etagAtual;else etagLancamentos=etagAtual;
+  if(qual==='clientes')etagClientes=etagAtual;else if(qual==='obras')etagObras=etagAtual;else if(qual==='tecnicos')etagTecnicos=etagAtual;else if(qual==='alocacoes')etagAlocacoes=etagAtual;else etagLancamentos=etagAtual;
   return ok;
 }
 let etagTarefasTmo=null;
@@ -2199,12 +2506,13 @@ function setSyncStatus(t,c){const el=document.getElementById('sync-status');if(!
 async function carregarDados(silencioso){
   if(!msAccount||carregando)return;
   carregando=true;setSyncStatus('☁ carregando…','saving');
-  const [rc,ro,rl,rt]=await Promise.all([carregarColecao(CLIENTES_FILE),carregarColecao(OBRAS_FILE),carregarColecao(LANCAMENTOS_FILE),carregarColecao(TECNICOS_FILE)]);
+  const [rc,ro,rl,rt,ra]=await Promise.all([carregarColecao(CLIENTES_FILE),carregarColecao(OBRAS_FILE),carregarColecao(LANCAMENTOS_FILE),carregarColecao(TECNICOS_FILE),carregarColecao(ALOCACOES_FILE)]);
   clientes=(rc.dados&&Array.isArray(rc.dados.itens))?rc.dados.itens:[];
   obras=(ro.dados&&Array.isArray(ro.dados.itens))?ro.dados.itens:[];
   lancamentos=(rl.dados&&Array.isArray(rl.dados.itens))?rl.dados.itens:[];
   tecnicos=(rt.dados&&Array.isArray(rt.dados.itens))?rt.dados.itens:[];
-  etagClientes=rc.etag;etagObras=ro.etag;etagLancamentos=rl.etag;etagTecnicos=rt.etag;
+  alocacoes=(ra.dados&&Array.isArray(ra.dados.itens))?ra.dados.itens:[];
+  etagClientes=rc.etag;etagObras=ro.etag;etagLancamentos=rl.etag;etagTecnicos=rt.etag;etagAlocacoes=ra.etag;
   await carregarTarefasTmo();
   ultimaSync=new Date().toISOString();saveCache();
   carregando=false;setSyncStatus('☁ atualizado','ok');
@@ -2479,11 +2787,11 @@ async function initAuth(){
 }
 function updateLoginUI(){const lbl=document.getElementById('ms-login-label'),info=document.getElementById('ms-user-info');if(msAccount){lbl.textContent='✓ '+(msAccount.name||msAccount.username);info.textContent='SharePoint › '+SP_PASTA;info.style.display='block';}else{lbl.textContent='🔑 Entrar com Microsoft';info.style.display='none';}}
 function limparDadosLocaisAoSair(){
-  clientes=[];obras=[];lancamentos=[];tecnicos=[];
+  clientes=[];obras=[];lancamentos=[];tecnicos=[];alocacoes=[];
   listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[],categoriasSemCusto:[]};
   acesso={emailsAutorizados:[],emailsComuns:[]};
   ultimaSync=null;
-  etagClientes=null;etagObras=null;etagLancamentos=null;etagTecnicos=null;acessoEtag=null;listasEtag=null;etagTarefasTmo=null;
+  etagClientes=null;etagObras=null;etagLancamentos=null;etagTecnicos=null;etagAlocacoes=null;acessoEtag=null;listasEtag=null;etagTarefasTmo=null;
   orcamentosCache=null;
   try{localStorage.removeItem(STORE_KEY);}catch(e){}
   clearInterval(_pollTimer);

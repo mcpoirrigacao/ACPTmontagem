@@ -254,7 +254,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
       <h3>Obras Pendentes <span class="h3-side">ainda não iniciadas</span></h3>
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Entrega de Material</th><th>Data de Início</th><th class="r">Dias entre negociação e início</th><th>Técnico(s) Alocado(s)</th></tr></thead>
+          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Entrega de Material</th><th>Data de Início</th><th class="r">Dias até Início</th><th>Técnico(s) Alocado(s)</th></tr></thead>
           <tbody id="tbody-obras-pendentes"></tbody>
         </table>
       </div>
@@ -1076,6 +1076,14 @@ function diasNegociacaoAteInicio(obra){
   const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
   return Math.round((diZero.getTime()-dnZero.getTime())/86400000);
 }
+function diasAteInicio(obra){
+  if(!obra.dataInicio)return null;
+  const di=new Date(obra.dataInicio);
+  if(isNaN(di))return null;
+  const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
+  const hoje=new Date();const hojeZero=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
+  return Math.round((diZero.getTime()-hojeZero.getTime())/86400000);
+}
 function obraEhPendente(obra){
   if(obra.concluida)return false;
   if(!obra.dataInicio)return true;
@@ -1096,9 +1104,9 @@ function renderObrasPendentes(){
   if(!pendentes.length){card.style.display='none';return;}
   document.getElementById('tbody-obras-pendentes').innerHTML=pendentes.map(o=>{
     const c=clientePorId(o.clienteId);
-    const faltaData=!o.dataNegociacao||!o.dataInicio;
-    const dias=diasNegociacaoAteInicio(o);
-    const textoDias=faltaData?'preencher data':int(dias)+' dia(s)';
+    const faltaData=!o.dataInicio;
+    const dias=diasAteInicio(o);
+    const textoDias=faltaData?'preencher data':(dias===0?'começa hoje':int(dias)+' dia(s)');
     const tecs=alocacoesAtivasDaObra(o.id).map(a=>nomeTecnico(a.tecnicoId));
     const tecsTexto=tecs.length?tecs.join(', '):'—';
     return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${o.dataNegociacao?fmtData(o.dataNegociacao):'—'}</td><td>${o.dataEntregaMaterial?fmtData(o.dataEntregaMaterial):'—'}</td><td>${o.dataInicio?fmtData(o.dataInicio):'—'}</td><td class="num" style="${faltaData?'color:var(--texto-suave);font-style:italic;':''}">${textoDias}</td><td>${escapeHtml(tecsTexto)}</td></tr>`;
@@ -1168,6 +1176,21 @@ function renderSeletorAgendaTecnico(){
 function alocacoesDoTecnicoNoDia(tecnicoId,data){
   return alocacoes.filter(a=>a.tecnicoId===tecnicoId&&periodosSeSobrepoem(data,data,a.dataInicio,a.dataFim));
 }
+/* Várias alocações (ativa + histórico de reagendamentos) da mesma obra costumam se sobrepor no tempo —
+   sem isso, o calendário mostraria a mesma obra repetida uma vez por registro. Mantém só 1 por obra:
+   prioriza a ativa; entre duas do mesmo status, a mais recente (criadoEm). */
+function alocacoesDoTecnicoNoDiaPorObra(tecnicoId,data){
+  const todas=alocacoesDoTecnicoNoDia(tecnicoId,data);
+  const porObra={};
+  todas.forEach(a=>{
+    const atual=porObra[a.obraId];
+    if(!atual){porObra[a.obraId]=a;return;}
+    const aAtiva=a.ativa!==false,atualAtiva=atual.ativa!==false;
+    if(aAtiva&&!atualAtiva)porObra[a.obraId]=a;
+    else if(aAtiva===atualAtiva&&new Date(a.criadoEm||0)>new Date(atual.criadoEm||0))porObra[a.obraId]=a;
+  });
+  return Object.values(porObra);
+}
 function renderCalendarioTecnico(tecnicoId){
   const grid=document.getElementById('grid-agenda-tecnico');
   if(!tecnicoId){grid.innerHTML='';return;}
@@ -1179,7 +1202,7 @@ function renderCalendarioTecnico(tecnicoId){
   const hojeStr=new Date().toDateString();
   for(let dia=1;dia<=diasNoMes;dia++){
     const dataAtual=new Date(agendaAno,agendaMes,dia);
-    const doDia=alocacoesDoTecnicoNoDia(tecnicoId,dataAtual);
+    const doDia=alocacoesDoTecnicoNoDiaPorObra(tecnicoId,dataAtual);
     const limite=4;
     const chips=doDia.slice(0,limite).map(a=>{
       const o=obraPorId(a.obraId);const c=o?clientePorId(o.clienteId):null;

@@ -254,7 +254,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
       <h3>Obras Pendentes <span class="h3-side">ainda não iniciadas</span></h3>
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Entrega de Material</th><th>Data de Início</th><th class="r">Dias até Início</th><th>Técnico(s) Alocado(s)</th></tr></thead>
+          <thead><tr><th>Obra</th><th>Data Negociada</th><th>Entrega de Material</th><th>Data de Início</th><th class="r">Dias até Início</th><th>Técnico(s) Alocado(s)</th><th class="somente-admin">Ações</th></tr></thead>
           <tbody id="tbody-obras-pendentes"></tbody>
         </table>
       </div>
@@ -1095,6 +1095,7 @@ function obraEhPendente(obra){
 }
 function renderObrasPendentes(){
   const card=document.getElementById('card-obras-pendentes');
+  const admin=souAdmin();
   const pendentes=[...obras].filter(obraEhPendente).sort((a,b)=>{
     if(!a.dataInicio&&!b.dataInicio)return 0;
     if(!a.dataInicio)return 1;
@@ -1102,15 +1103,17 @@ function renderObrasPendentes(){
     return new Date(a.dataInicio)-new Date(b.dataInicio);
   });
   if(!pendentes.length){card.style.display='none';return;}
-  document.getElementById('tbody-obras-pendentes').innerHTML=pendentes.map(o=>{
+  const tbodyPendentes=document.getElementById('tbody-obras-pendentes');
+  tbodyPendentes.innerHTML=pendentes.map(o=>{
     const c=clientePorId(o.clienteId);
     const faltaData=!o.dataInicio;
     const dias=diasAteInicio(o);
     const textoDias=faltaData?'preencher data':(dias===0?'começa hoje':int(dias)+' dia(s)');
     const tecs=alocacoesAtivasDaObra(o.id).map(a=>nomeTecnico(a.tecnicoId));
     const tecsTexto=tecs.length?tecs.join(', '):'—';
-    return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${o.dataNegociacao?fmtData(o.dataNegociacao):'—'}</td><td>${o.dataEntregaMaterial?fmtData(o.dataEntregaMaterial):'—'}</td><td>${o.dataInicio?fmtData(o.dataInicio):'—'}</td><td class="num" style="${faltaData?'color:var(--texto-suave);font-style:italic;':''}">${textoDias}</td><td>${escapeHtml(tecsTexto)}</td></tr>`;
+    return `<tr><td>${escapeHtml((c?c.nome:'?')+' — '+o.nome)}</td><td>${o.dataNegociacao?fmtData(o.dataNegociacao):'—'}</td><td>${o.dataEntregaMaterial?fmtData(o.dataEntregaMaterial):'—'}</td><td>${o.dataInicio?fmtData(o.dataInicio):'—'}</td><td class="num" style="${faltaData?'color:var(--texto-suave);font-style:italic;':''}">${textoDias}</td><td>${escapeHtml(tecsTexto)}</td>${admin?`<td><button class="btn ghost small" data-editar-obra-pendente="${escapeHtml(o.id)}" type="button">editar</button></td>`:''}</tr>`;
   }).join('');
+  if(admin)tbodyPendentes.querySelectorAll('[data-editar-obra-pendente]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObraPendente)));
   card.style.display='';
 }
 function renderObrasSemTecnico(){

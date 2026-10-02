@@ -250,6 +250,11 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
   <section class="pane" id="pane-agenda">
     <h2 class="pane-title">Agenda</h2>
     <p class="pane-desc">Obras posicionadas pela Data de Início + Prazo Estimado (dias), coloridas pelo Status. Períodos de pausa aparecem em cinza sólido, e obras atrasadas continuam aparecendo até serem concluídas.</p>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+      <label style="font-size:.8rem;color:var(--texto-suave);display:flex;align-items:center;gap:6px;">Regional:
+        <select id="filtro-agenda-regional"><option value="">Todas</option></select>
+      </label>
+    </div>
     <div class="card" id="card-obras-pendentes" style="display:none;">
       <h3>Obras Pendentes <span class="h3-side">ainda não iniciadas</span></h3>
       <div class="tablewrap">
@@ -758,6 +763,7 @@ function ajustarAlturaWrap(wrapId,qtdCategorias,porCategoria){
 function tooltipValorCompleto(){return {callbacks:{label:ctx=>` ${ctx.dataset.label||''}: ${brl(ctx.raw)}`}};}
 function renderGraficoResumoObra(base){
   const canvas=document.getElementById('chart-resumo-obra');if(!canvas||!window.Chart)return;
+  base=base.filter(l=>!(String(l.tipo||'').toUpperCase().trim()==='SAIDA'&&!categoriaComponeCusto(l.categoria)));
   const porCliente={};
   base.forEach(l=>{
     const cli=nomeClienteDoLancamento(l);
@@ -775,6 +781,7 @@ function renderGraficoResumoObra(base){
 }
 function renderGraficoBalanco(base){
   const canvas=document.getElementById('chart-balanco');if(!canvas||!window.Chart)return;
+  base=base.filter(l=>!(String(l.tipo||'').toUpperCase().trim()==='SAIDA'&&!categoriaComponeCusto(l.categoria)));
   const porTipo={};
   base.forEach(l=>{const tp=String(l.tipo||'(sem tipo)').toUpperCase().trim();porTipo[tp]=(porTipo[tp]||0)+valorTotalLancamento(l);});
   const labels=Object.keys(porTipo),dados=labels.map(l=>porTipo[l]),cores=labels.map(corTipo);
@@ -1054,9 +1061,22 @@ function textoAtraso(obra){
   if(d<0)return `${Math.abs(d)} dia(s) adiantada`;
   return 'no prazo';
 }
+let filtroAgendaRegional='';
+function obraPassaFiltroAgenda(obra){
+  if(!filtroAgendaRegional)return true;
+  const c=clientePorId(obra.clienteId);
+  return !!(c&&c.regional===filtroAgendaRegional);
+}
+function renderFiltroAgendaRegional(){
+  const sel=document.getElementById('filtro-agenda-regional');
+  if(!sel)return;
+  sel.innerHTML='<option value="">Todas</option>'+opcoesRegionaisDistintas().map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+  sel.value=filtroAgendaRegional;
+}
 function obrasNoIntervalo(){
   return obras.map(o=>{
     if(!o.dataInicio)return null;
+    if(!obraPassaFiltroAgenda(o))return null;
     const inicio=new Date(o.dataInicio);
     if(isNaN(inicio))return null;
     let fim=dataPrevistaConclusao(o)||inicio;
@@ -1096,7 +1116,7 @@ function obraEhPendente(obra){
 function renderObrasPendentes(){
   const card=document.getElementById('card-obras-pendentes');
   const admin=souAdmin();
-  const pendentes=[...obras].filter(obraEhPendente).sort((a,b)=>{
+  const pendentes=[...obras].filter(o=>obraEhPendente(o)&&obraPassaFiltroAgenda(o)).sort((a,b)=>{
     if(!a.dataInicio&&!b.dataInicio)return 0;
     if(!a.dataInicio)return 1;
     if(!b.dataInicio)return -1;
@@ -1118,7 +1138,7 @@ function renderObrasPendentes(){
 }
 function renderObrasSemTecnico(){
   const card=document.getElementById('card-obras-sem-tecnico');
-  const emFalta=obras.filter(o=>!o.concluida&&obraSemTecnicoHoje(o));
+  const emFalta=obras.filter(o=>!o.concluida&&obraSemTecnicoHoje(o)&&obraPassaFiltroAgenda(o));
   if(!emFalta.length){card.style.display='none';return;}
   document.getElementById('tbody-obras-sem-tecnico').innerHTML=emFalta.map(o=>{
     const c=clientePorId(o.clienteId);
@@ -1127,6 +1147,7 @@ function renderObrasSemTecnico(){
   card.style.display='';
 }
 function renderAgenda(){
+  renderFiltroAgendaRegional();
   renderObrasPendentes();
   renderObrasSemTecnico();
   renderSeletorAgendaTecnico();
@@ -1246,6 +1267,7 @@ function renderAgendaDoTecnico(){
     (encerradas.length?encerradas.map(linhaAlocacao).join(''):'<div style="color:var(--texto-suave);font-size:.82rem;">Nenhuma alocação encerrada ainda.</div>');
 }
 document.getElementById('sel-agenda-tecnico').addEventListener('change',renderAgendaDoTecnico);
+document.getElementById('filtro-agenda-regional').addEventListener('change',e=>{filtroAgendaRegional=e.target.value;renderAgenda();});
 document.getElementById('btn-checar-disponibilidade').addEventListener('click',()=>{
   const de=document.getElementById('disp-data-de').value,ate=document.getElementById('disp-data-ate').value;
   const cont=document.getElementById('lista-disponibilidade');

@@ -1668,10 +1668,16 @@ function campoHtmlGenerico(campo,valorAtual){
   }else if(campo.tipo==='premiacaoEditor'){
     inputHtml=`<div id="${idc}__resumo" style="font-size:.82rem;line-height:1.7;margin-bottom:10px;"></div>`+
       `<div id="${idc}__lista"></div>`+
-      `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:flex-end;">`+
+      `<div style="margin-top:12px;">`+
+        `<label style="display:block;font-size:.66rem;color:var(--texto-suave);margin-bottom:4px;">Técnico(s)</label>`+
+        `<div style="display:flex;gap:16px;flex-wrap:wrap;">`+
+          `<div style="flex:1;min-width:220px;"><div style="font-size:.7rem;color:var(--texto-suave);text-transform:uppercase;margin-bottom:4px;">Montadores</div><div id="${idc}__tecnicos_montador" style="display:flex;flex-direction:column;gap:5px;font-size:.82rem;border:1px solid var(--borda);border-radius:4px;padding:8px;max-height:150px;overflow-y:auto;"></div></div>`+
+          `<div style="flex:1;min-width:220px;"><div style="font-size:.7rem;color:var(--texto-suave);text-transform:uppercase;margin-bottom:4px;">Auxiliares</div><div id="${idc}__tecnicos_auxiliar" style="display:flex;flex-direction:column;gap:5px;font-size:.82rem;border:1px solid var(--borda);border-radius:4px;padding:8px;max-height:150px;overflow-y:auto;"></div></div>`+
+        `</div>`+
+      `</div>`+
+      `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:flex-end;">`+
         `<div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Competência</label><input type="month" id="${idc}__competencia"></div>`+
         `<div><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Valor (R$)</label><input type="number" step="any" id="${idc}__valor" style="width:120px;"></div>`+
-        `<div style="flex:1;min-width:180px;"><label style="display:block;font-size:.66rem;color:var(--texto-suave);">Técnico(s)</label><div id="${idc}__tecnicos" style="display:flex;gap:8px;flex-wrap:wrap;font-size:.8rem;"></div></div>`+
         `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar Pagamento</button>`+
       `</div>`+
       `<input type="text" id="${idc}__obs" placeholder="Observação (opcional)" style="width:100%;margin-top:6px;">`;
@@ -1740,9 +1746,12 @@ function renderPremiacaoEditor(){
       `<b>Premiação Total:</b> ${brl(calc.premiacaoTotal)}<br>`+
       `<b>Já pago:</b> ${brl(totalPago)} · <b>Saldo:</b> <span style="font-weight:700;color:${saldo<0?'var(--erro)':'inherit'};">${brl(saldo)}</span>`;
   }
-  const tecCont=document.getElementById('campo-modal-premiacao__tecnicos');
-  if(tecCont){
-    tecCont.innerHTML=tecnicos.length?tecnicos.map(t=>`<label style="display:flex;align-items:center;gap:4px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico>${escapeHtml(t.nome)} (${escapeHtml(t.funcao)})</label>`).join(''):'<span class="nota">Nenhum técnico cadastrado — cadastre em Parâmetros.</span>';
+  const tecContMont=document.getElementById('campo-modal-premiacao__tecnicos_montador');
+  const tecContAux=document.getElementById('campo-modal-premiacao__tecnicos_auxiliar');
+  if(tecContMont&&tecContAux){
+    const montadores=tecnicos.filter(t=>t.funcao==='Montador'),auxiliares=tecnicos.filter(t=>t.funcao==='Auxiliar');
+    tecContMont.innerHTML=montadores.length?montadores.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico>${escapeHtml(t.nome)}</label>`).join(''):'<span class="nota">Nenhum montador cadastrado.</span>';
+    tecContAux.innerHTML=auxiliares.length?auxiliares.map(t=>`<label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" value="${escapeHtml(t.id)}" data-check-tecnico>${escapeHtml(t.nome)}</label>`).join(''):'<span class="nota">Nenhum auxiliar cadastrado.</span>';
   }
   const lista=document.getElementById('campo-modal-premiacao__lista');
   if(lista){
@@ -1922,7 +1931,7 @@ function abrirModal(entidade,id,seed){
       const competencia=document.getElementById('campo-modal-premiacao__competencia').value;
       const valor=document.getElementById('campo-modal-premiacao__valor').value;
       const obs=document.getElementById('campo-modal-premiacao__obs').value;
-      const tecnicoIds=Array.from(document.querySelectorAll('#campo-modal-premiacao__tecnicos [data-check-tecnico]:checked')).map(el=>el.value);
+      const tecnicoIds=Array.from(document.querySelectorAll('#campo-modal-premiacao__tecnicos_montador [data-check-tecnico]:checked, #campo-modal-premiacao__tecnicos_auxiliar [data-check-tecnico]:checked')).map(el=>el.value);
       if(!valor||Number(valor)<=0){toast('Informe um valor de pagamento maior que zero.');return;}
       if(!tecnicoIds.length){toast('Selecione ao menos um técnico.');return;}
       pagamentosEmEdicao.push({id:gerarId('pg'),competencia,valor:Number(valor),tecnicoIds,observacao:obs});

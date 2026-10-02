@@ -679,9 +679,13 @@ const CORES_TIPO={SAIDA:'#a3312a',ENTRADA:'#0a7517',NEGOCIADO:'#cf9b3e'};
 function corTipo(t){return CORES_TIPO[t]||'#5f6e62';}
 
 /* ============================ FILTROS GLOBAIS (Painel + Regional) ============================ */
-let filtroCliente='',filtroRegional='',filtroObra='',filtroDataDe='',filtroDataAte='',filtroStatus='';
+let filtroCliente='',filtroRegional='',filtroObra='',filtroDataDe='',filtroDataAte='',filtroStatus='',filtroNegociacaoAno='',filtroNegociacaoMes='';
+const NOMES_MES_CURTO=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 function opcoesClientesDistintos(){return clientes.map(c=>c.nome).filter(Boolean).sort();}
 function opcoesRegionaisDistintas(){return Array.from(new Set(clientes.map(c=>c.regional).filter(Boolean))).sort();}
+function opcoesAnosNegociacao(){
+  return Array.from(new Set(obras.map(o=>{if(!o.dataNegociacao)return null;const d=new Date(o.dataNegociacao);return isNaN(d)?null:d.getUTCFullYear();}).filter(Boolean))).sort((a,b)=>b-a);
+}
 function opcoesObrasFiltro(){
   let lista=obras;
   if(filtroCliente)lista=lista.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.nome===filtroCliente;});
@@ -717,13 +721,23 @@ function obrasFiltradasPeloPainel(){
   if(filtroRegional)arr=arr.filter(o=>{const c=clientePorId(o.clienteId);return c&&c.regional===filtroRegional;});
   if(filtroObra)arr=arr.filter(o=>o.id===filtroObra);
   if(filtroStatus)arr=arr.filter(o=>statusCorrespondeAoFiltro(statusEfetivo(o),filtroStatus));
+  if(filtroNegociacaoAno||filtroNegociacaoMes){
+    arr=arr.filter(o=>{
+      if(!o.dataNegociacao)return false;
+      const d=new Date(o.dataNegociacao);if(isNaN(d))return false;
+      if(filtroNegociacaoAno&&String(d.getUTCFullYear())!==filtroNegociacaoAno)return false;
+      if(filtroNegociacaoMes&&String(d.getUTCMonth()+1)!==filtroNegociacaoMes)return false;
+      return true;
+    });
+  }
   return arr;
 }
 function renderFiltrosTopo(prefix){
   const wrap=document.getElementById('filtros-topo-'+prefix);if(!wrap)return;
   const optsCliente=opcoesClientesDistintos(),optsRegional=opcoesRegionaisDistintas(),optsObra=opcoesObrasFiltro();
   const optsStatus=Object.keys(CORES_STATUS_FIXAS).filter(v=>v!=='Andamento Atrasada');
-  const temFiltro=filtroCliente||filtroRegional||filtroObra||filtroDataDe||filtroDataAte||filtroStatus;
+  const optsAnoNeg=opcoesAnosNegociacao();
+  const temFiltro=filtroCliente||filtroRegional||filtroObra||filtroDataDe||filtroDataAte||filtroStatus||filtroNegociacaoAno||filtroNegociacaoMes;
   wrap.innerHTML=
     `<input type="text" data-ftipo="cliente" list="datalist-clientes-${prefix}" value="${escapeHtml(filtroCliente)}" placeholder="Cliente: todos">`+
     `<datalist id="datalist-clientes-${prefix}">${optsCliente.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('')}</datalist>`+
@@ -731,6 +745,8 @@ function renderFiltrosTopo(prefix){
     `<select data-ftipo="obra"><option value="">Obra: todas</option>${optsObra.map(o=>`<option value="${escapeHtml(o.id)}" ${o.id===filtroObra?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select>`+
     `<select data-ftipo="status"><option value="">Status: todos</option>${optsStatus.map(v=>`<option value="${escapeHtml(v)}" ${v===filtroStatus?'selected':''}>${escapeHtml(v==='Em andamento'?'Em andamento (inclui atrasadas)':v)}</option>`).join('')}</select>`+
     `<input type="date" data-ftipo="dataDe" value="${filtroDataDe}" title="Data inicial"><input type="date" data-ftipo="dataAte" value="${filtroDataAte}" title="Data final">`+
+    `<select data-ftipo="negociacaoAno" title="Ano em que a obra foi negociada"><option value="">Ano Negociação: todos</option>${optsAnoNeg.map(a=>`<option value="${a}" ${String(a)===filtroNegociacaoAno?'selected':''}>${a}</option>`).join('')}</select>`+
+    `<select data-ftipo="negociacaoMes" title="Mês em que a obra foi negociada"><option value="">Mês Negociação: todos</option>${NOMES_MES_CURTO.map((m,i)=>`<option value="${i+1}" ${String(i+1)===filtroNegociacaoMes?'selected':''}>${m}</option>`).join('')}</select>`+
     (temFiltro?`<button type="button" class="btn ghost small" data-flimpar="1">Limpar filtros</button>`:'');
   wrap.querySelectorAll('[data-ftipo]').forEach(el=>{
     const evento=(el.tagName==='INPUT'&&el.type==='text')?'input':'change';
@@ -746,11 +762,13 @@ function renderFiltrosTopo(prefix){
       if(tipo==='status')filtroStatus=el.value;
       if(tipo==='dataDe')filtroDataDe=el.value;
       if(tipo==='dataAte')filtroDataAte=el.value;
+      if(tipo==='negociacaoAno')filtroNegociacaoAno=el.value;
+      if(tipo==='negociacaoMes')filtroNegociacaoMes=el.value;
       renderPainel();renderRegional();
     });
   });
   const btnLimpar=wrap.querySelector('[data-flimpar]');
-  if(btnLimpar)btnLimpar.addEventListener('click',()=>{filtroCliente='';filtroRegional='';filtroObra='';filtroDataDe='';filtroDataAte='';filtroStatus='';renderPainel();renderRegional();});
+  if(btnLimpar)btnLimpar.addEventListener('click',()=>{filtroCliente='';filtroRegional='';filtroObra='';filtroDataDe='';filtroDataAte='';filtroStatus='';filtroNegociacaoAno='';filtroNegociacaoMes='';renderPainel();renderRegional();});
 }
 
 /* ============================ GRÁFICOS (Chart.js) ============================ */

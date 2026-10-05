@@ -407,7 +407,13 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
         <input type="text" id="inp-novo-comum" placeholder="email@empresa.com" style="flex:1;min-width:200px;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.88rem;background:#fffdf9;">
         <button class="btn ghost small" id="btn-add-comum" type="button">+ Usuário</button>
       </div>
-      <p style="font-size:.78rem;color:var(--texto-suave);margin-top:14px;">Usuários comuns visualizam tudo, mas não podem criar, editar ou excluir registros — só administradores têm escrita.</p>
+      <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--texto-suave);font-weight:700;margin:16px 0 6px;">Somente Agenda</div>
+      <div id="lista-agenda-usuarios"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <input type="text" id="inp-novo-agenda" placeholder="email@empresa.com" style="flex:1;min-width:200px;border:1px solid var(--borda);border-radius:4px;padding:8px 10px;font-size:.88rem;background:#fffdf9;">
+        <button class="btn ghost small" id="btn-add-agenda" type="button">+ Somente Agenda</button>
+      </div>
+      <p style="font-size:.78rem;color:var(--texto-suave);margin-top:14px;">Usuários comuns visualizam tudo, mas não podem criar, editar ou excluir registros — só administradores têm escrita. Usuários "Somente Agenda" veem apenas a aba Agenda, também sem edição.</p>
     </div>
   </section>
 </main>
@@ -1300,13 +1306,14 @@ document.getElementById('btn-exportar-disponibilidade').addEventListener('click'
   const textoOriginal=btn.textContent;btn.textContent='⏳ gerando...';btn.disabled=true;
   try{
     await loadSheetJs();
-    const linhas=resultado.map(r=>({
-      Técnico:r.tecnico.nome,
-      Função:r.tecnico.funcao||'—',
-      CPF:r.tecnico.cpf||'—',
-      Status:r.disponivel?'Livre':'Ocupado',
-      'Obra(s) conflitante(s)':r.disponivel?'':textoConflitos(r.conflitos),
-    }));
+    const incluirCpf=souAdmin();
+    const linhas=resultado.map(r=>{
+      const linha={Técnico:r.tecnico.nome,Função:r.tecnico.funcao||'—'};
+      if(incluirCpf)linha.CPF=r.tecnico.cpf||'—';
+      linha.Status=r.disponivel?'Livre':'Ocupado';
+      linha['Obra(s) conflitante(s)']=r.disponivel?'':textoConflitos(r.conflitos);
+      return linha;
+    });
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.json_to_sheet(linhas);
     XLSX.utils.book_append_sheet(wb,ws,'Disponibilidade');
@@ -1589,6 +1596,7 @@ const ESQUEMAS={
     {chave:'valorNegociado',label:'Valor Negociado (R$)',tipo:'number',secaoAntes:'Financeiro'},
     {chave:'dataNegociacao',label:'Data da Negociação',tipo:'date'},
     {chave:'dataEntregaMaterial',label:'Entrega de Material',tipo:'date'},
+    {chave:'historicoEntregaMaterial',label:'Histórico de alterações — Entrega de Material',tipo:'historicoEntrega',largo:true},
 
     {chave:'qtdLances',label:'QTD Lances',tipo:'number',secaoAntes:'Métricas Técnicas'},
     {chave:'qtdBombeamentos',label:'QTD Bombeamentos',tipo:'number'},
@@ -1681,6 +1689,8 @@ function campoHtmlGenerico(campo,valorAtual){
       `<span class="nota">Preencha aqui manualmente se a obra não veio de um orçamento, ou ajuste os valores importados. O botão acima só sugere os 3 campos abaixo — eles continuam editáveis.</span>`;
   }else if(campo.tipo==='cpfMask'){
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(formatarCPF(valorAtual||''))}" placeholder="000.000.000-00" maxlength="14" inputmode="numeric">`;
+  }else if(campo.tipo==='historicoEntrega'){
+    inputHtml=htmlHistoricoEntrega(valorAtual);
   }else if(campo.tipo==='equipeAcesso'){
     inputHtml=`<div id="${idc}__resumo" style="font-size:.82rem;color:var(--texto-suave);margin-bottom:8px;"></div><button type="button" class="btn ghost small" id="${idc}__abrir">Gerenciar Equipe</button>`;
   }else{
@@ -1688,6 +1698,24 @@ function campoHtmlGenerico(campo,valorAtual){
   }
   const secao=campo.secaoAntes?`<div style="grid-column:1/-1;margin-top:6px;"><h3 style="margin:0 0 2px;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--azul-claro);border-bottom:1px solid var(--areia-escura);padding-bottom:6px;">${escapeHtml(campo.secaoAntes)}</h3></div>`:'';
   return secao+`<div class="field"${campo.largo?' style="grid-column:1/-1;"':''}><label>${escapeHtml(campo.label)}${campo.obrigatorio?' *':''}</label>${inputHtml}</div>`;
+}
+/* Histórico da data de Entrega de Material (para análise interna): a cada mudança no valor
+   salvo, guarda data anterior → nova, quando e por quem. Nunca é editado/apagado pela tela. */
+function anexarHistoricoEntregaMaterial(obraDestino,valorAnterior,valorNovo){
+  const de=valorAnterior?String(valorAnterior):'',para=valorNovo?String(valorNovo):'';
+  if(de===para)return false;
+  obraDestino.historicoEntregaMaterial=(obraDestino.historicoEntregaMaterial||[]).concat([{de:de||null,para:para||null,em:new Date().toISOString(),por:emailAtual()||'(local)'}]);
+  return true;
+}
+function htmlHistoricoEntrega(hist){
+  const lista=Array.isArray(hist)?hist:[];
+  if(!lista.length)return `<div class="nota">Nenhuma alteração registrada ainda. Cada mudança na data de Entrega de Material fica guardada aqui automaticamente.</div>`;
+  const linhas=[...lista].reverse().map(h=>{
+    const quando=h.em?new Date(h.em).toLocaleString('pt-BR'):'—';
+    const de=h.de?fmtData(h.de):'(sem data)',para=h.para?fmtData(h.para):'(data removida)';
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--areia-escura);font-size:.8rem;"><b>${escapeHtml(de)}</b> → <b>${escapeHtml(para)}</b><br><span style="color:var(--texto-suave);font-size:.74rem;">${escapeHtml(quando)} · ${escapeHtml(h.por||'—')}</span></div>`;
+  }).join('');
+  return `<details><summary style="cursor:pointer;font-size:.82rem;">${int(lista.length)} alteração(ões) registrada(s)</summary><div style="max-height:170px;overflow-y:auto;margin-top:6px;">${linhas}</div></details>`;
 }
 function formatarCPF(v){
   const d=String(v||'').replace(/\D/g,'').slice(0,11);
@@ -1952,7 +1980,7 @@ function coletarCampos(entidade){
     if(campo.tipo==='tarefasEditor'){obj[campo.chave]=tarefasEmEdicao;return;}
     if(campo.tipo==='premiacaoEditor'){obj[campo.chave]=pagamentosEmEdicao;return;}
     if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
-    if(campo.tipo==='equipeAcesso'){return;}
+    if(campo.tipo==='equipeAcesso'||campo.tipo==='historicoEntrega'){return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
     if(campo.tipo==='boolean'){obj[campo.chave]=el.checked;return;}
@@ -1973,10 +2001,15 @@ document.getElementById('btn-salvar-registro').addEventListener('click',async()=
     if(modalEntidade==='obra'&&seedAtualObra){
       if(seedAtualObra.precosImportados)novo.precosImportados=seedAtualObra.precosImportados;
     }
+    if(modalEntidade==='obra')anexarHistoricoEntregaMaterial(novo,'',campos.dataEntregaMaterial);
     colecao.push(novo);
   }else{
     const item=colecao.find(x=>x.id===modalEditandoId);
-    if(item)Object.assign(item,campos);
+    if(item){
+      const entregaAnterior=item.dataEntregaMaterial;
+      Object.assign(item,campos);
+      if(modalEntidade==='obra')anexarHistoricoEntregaMaterial(item,entregaAnterior,campos.dataEntregaMaterial);
+    }
   }
   const ok=await salvarColecao(nomeColecaoDe(modalEntidade));
   if(ok){
@@ -2080,7 +2113,7 @@ const ALOCACOES_FILE='mcpo_alocacoes.json';
 const TAREFAS_TMO_FILE='mcpo_tarefas_tmo.json';
 
 let msalInstance=null,msAccount=null,msalReady=false;
-let acesso={emailsAutorizados:[],emailsComuns:[]};
+let acesso={emailsAutorizados:[],emailsComuns:[],emailsAgenda:[]};
 let acessoEtag=null,etagClientes=null,etagObras=null,etagLancamentos=null,etagTecnicos=null,etagAlocacoes=null;
 function spEncodePath(p){return p.split('/').map(s=>encodeURIComponent(s)).join('/');}
 function spPath(f){return `/${SP_BIBLIOTECA}/${SP_PASTA}/${f}`;}
@@ -2713,7 +2746,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&msAccount
 
 async function carregarAcesso(){
   const ac=await graphGetJsonEtag(spPath(ACESSO_FILE));
-  if(ac.ok&&ac.data&&(ac.data.emailsAutorizados||ac.data.emailsComuns)){acesso={emailsAutorizados:ac.data.emailsAutorizados||[],emailsComuns:ac.data.emailsComuns||[]};acessoEtag=ac.etag;}
+  if(ac.ok&&ac.data&&(ac.data.emailsAutorizados||ac.data.emailsComuns||ac.data.emailsAgenda)){acesso={emailsAutorizados:ac.data.emailsAutorizados||[],emailsComuns:ac.data.emailsComuns||[],emailsAgenda:ac.data.emailsAgenda||[]};acessoEtag=ac.etag;}
 }
 async function saveAcesso(){
   if(!msAccount){toast('Entre com o Microsoft para gerenciar usuários.');return;}
@@ -2722,7 +2755,7 @@ async function saveAcesso(){
   while(tent<5&&!ok){tent++;
     const res=await graphPutEtag(spPath(ACESSO_FILE),new TextEncoder().encode(JSON.stringify(acesso)),acessoEtag);
     if(res.ok){acessoEtag=res.etag||acessoEtag;ok=true;}
-    else if(res.status===412||res.status===409){const ac=await graphGetJsonEtag(spPath(ACESSO_FILE));if(ac.ok&&ac.data){acesso.emailsAutorizados=uni(ac.data.emailsAutorizados,acesso.emailsAutorizados);acesso.emailsComuns=uni(ac.data.emailsComuns,acesso.emailsComuns).filter(e=>!acesso.emailsAutorizados.includes(e));acessoEtag=ac.etag;renderUsuarios();}else break;}
+    else if(res.status===412||res.status===409){const ac=await graphGetJsonEtag(spPath(ACESSO_FILE));if(ac.ok&&ac.data){acesso.emailsAutorizados=uni(ac.data.emailsAutorizados,acesso.emailsAutorizados);acesso.emailsComuns=uni(ac.data.emailsComuns,acesso.emailsComuns).filter(e=>!acesso.emailsAutorizados.includes(e));acesso.emailsAgenda=uni(ac.data.emailsAgenda,acesso.emailsAgenda).filter(e=>!acesso.emailsAutorizados.includes(e)&&!acesso.emailsComuns.includes(e));acessoEtag=ac.etag;renderUsuarios();}else break;}
     else break;
   }
   if(!ok)toast('Não foi possível salvar os usuários.');
@@ -2930,16 +2963,25 @@ document.getElementById('btn-migrar').addEventListener('click',executarMigracao)
 
 /* ==================== CONTROLE DE ACESSO (admin/comum) ==================== */
 function emailAtual(){return msAccount?(msAccount.username||'').toLowerCase():'';}
-function nivelAcesso(){if(!msAccount)return msalReady?'deslogado':'local';const e=emailAtual();if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(e))return 'admin';if(acesso.emailsComuns.map(x=>x.toLowerCase()).includes(e))return 'comum';if(!acesso.emailsAutorizados.length&&!acesso.emailsComuns.length)return 'admin';return 'bloqueado';}
+function nivelAcesso(){if(!msAccount)return msalReady?'deslogado':'local';const e=emailAtual();if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(e))return 'admin';if(acesso.emailsComuns.map(x=>x.toLowerCase()).includes(e))return 'comum';if((acesso.emailsAgenda||[]).map(x=>x.toLowerCase()).includes(e))return 'agenda';if(!acesso.emailsAutorizados.length&&!acesso.emailsComuns.length&&!(acesso.emailsAgenda||[]).length)return 'admin';return 'bloqueado';}
 function applyAccess(){
   const nivel=nivelAcesso();const ovL=document.getElementById('overlay-login'),ovN=document.getElementById('overlay-negado');
   if(nivel==='deslogado'){ovL.style.display='flex';ovN.style.display='none';return;}ovL.style.display='none';
   if(nivel==='bloqueado'){ovN.style.display='flex';document.getElementById('overlay-email-info').textContent='Logado como: '+emailAtual();return;}ovN.style.display='none';
   const isAdmin=(nivel==='admin'||nivel==='local');
+  const isAgendaOnly=(nivel==='agenda');
   document.body.classList.toggle('is-admin',isAdmin);
+  document.body.classList.toggle('is-agenda-only',isAgendaOnly);
+  /* "Somente Agenda": só a aba Agenda fica visível; os demais perfis mantêm as abas de sempre */
+  document.querySelectorAll('#tabs button').forEach(b=>{
+    if(isAgendaOnly)b.style.display=(b.dataset.tab==='agenda')?'':'none';
+    else if(b.dataset.tab!=='parametros')b.style.display='';
+  });
   const tabParam=document.querySelector('#tabs button[data-tab="parametros"]');
-  tabParam.style.display=isAdmin?'':'none';
-  if(!isAdmin&&document.getElementById('pane-parametros').classList.contains('active'))document.querySelector('#tabs button[data-tab="painel"]').click();
+  if(!isAgendaOnly)tabParam.style.display=isAdmin?'':'none';
+  if(isAgendaOnly){
+    if(!document.getElementById('pane-agenda').classList.contains('active'))document.querySelector('#tabs button[data-tab="agenda"]').click();
+  }else if(!isAdmin&&document.getElementById('pane-parametros').classList.contains('active'))document.querySelector('#tabs button[data-tab="painel"]').click();
   if(document.getElementById('pane-clientes').classList.contains('active')){renderFiltrosClientes();renderClientes();}
   if(document.getElementById('pane-obras').classList.contains('active'))renderObras();
   if(document.getElementById('pane-lancamentos').classList.contains('active'))renderLancamentos();
@@ -2951,9 +2993,25 @@ function renderUsuarios(){
   const lc=document.getElementById('lista-comuns');
   lc.innerHTML=acesso.emailsComuns.length?acesso.emailsComuns.map((em,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--areia-escura);"><span style="flex:1;">👤 ${escapeHtml(em)}</span><button class="btn danger small" data-rem-comum="${i}" type="button">remover</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.82rem;">Nenhum usuário comum.</div>`;
   lc.querySelectorAll('[data-rem-comum]').forEach(b=>b.onclick=async()=>{acesso.emailsComuns.splice(+b.dataset.remComum,1);await saveAcesso();renderUsuarios();});
+  const lg=document.getElementById('lista-agenda-usuarios');
+  if(lg){
+    acesso.emailsAgenda=acesso.emailsAgenda||[];
+    lg.innerHTML=acesso.emailsAgenda.length?acesso.emailsAgenda.map((em,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--areia-escura);"><span style="flex:1;">👤 ${escapeHtml(em)} <span class="reg R2">SÓ AGENDA</span></span><button class="btn danger small" data-rem-agenda="${i}" type="button">remover</button></div>`).join(''):`<div style="color:var(--texto-suave);font-size:.82rem;">Nenhum usuário somente-agenda.</div>`;
+    lg.querySelectorAll('[data-rem-agenda]').forEach(b=>b.onclick=async()=>{acesso.emailsAgenda.splice(+b.dataset.remAgenda,1);await saveAcesso();renderUsuarios();});
+  }
 }
-document.getElementById('btn-add-admin').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-admin').value.trim().toLowerCase();if(!em)return;if(!acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em))acesso.emailsAutorizados.push(em);acesso.emailsComuns=acesso.emailsComuns.filter(x=>x.toLowerCase()!==em);document.getElementById('inp-novo-admin').value='';await saveAcesso();renderUsuarios();applyAccess();toast('Admin adicionado.');});
-document.getElementById('btn-add-comum').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-comum').value.trim().toLowerCase();if(!em)return;if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em)){toast('Já é admin.');return;}if(!acesso.emailsComuns.map(x=>x.toLowerCase()).includes(em))acesso.emailsComuns.push(em);document.getElementById('inp-novo-comum').value='';await saveAcesso();renderUsuarios();toast('Usuário adicionado.');});
+document.getElementById('btn-add-admin').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-admin').value.trim().toLowerCase();if(!em)return;if(!acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em))acesso.emailsAutorizados.push(em);acesso.emailsComuns=acesso.emailsComuns.filter(x=>x.toLowerCase()!==em);acesso.emailsAgenda=(acesso.emailsAgenda||[]).filter(x=>x.toLowerCase()!==em);document.getElementById('inp-novo-admin').value='';await saveAcesso();renderUsuarios();applyAccess();toast('Admin adicionado.');});
+document.getElementById('btn-add-comum').addEventListener('click',async()=>{const em=document.getElementById('inp-novo-comum').value.trim().toLowerCase();if(!em)return;if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em)){toast('Já é admin.');return;}if(!acesso.emailsComuns.map(x=>x.toLowerCase()).includes(em))acesso.emailsComuns.push(em);acesso.emailsAgenda=(acesso.emailsAgenda||[]).filter(x=>x.toLowerCase()!==em);document.getElementById('inp-novo-comum').value='';await saveAcesso();renderUsuarios();toast('Usuário adicionado.');});
+document.getElementById('btn-add-agenda').addEventListener('click',async()=>{
+  const em=document.getElementById('inp-novo-agenda').value.trim().toLowerCase();
+  if(!em)return;
+  if(acesso.emailsAutorizados.map(x=>x.toLowerCase()).includes(em)){toast('Já é admin — remova de Administradores antes.');return;}
+  acesso.emailsComuns=acesso.emailsComuns.filter(x=>x.toLowerCase()!==em);
+  acesso.emailsAgenda=acesso.emailsAgenda||[];
+  if(!acesso.emailsAgenda.map(x=>x.toLowerCase()).includes(em))acesso.emailsAgenda.push(em);
+  document.getElementById('inp-novo-agenda').value='';
+  await saveAcesso();renderUsuarios();toast('Usuário somente-agenda adicionado.');
+});
 document.getElementById('btn-sync').addEventListener('click',async()=>{if(!msAccount){toast('Entre com o Microsoft primeiro.');return;}await carregarAcesso();await carregarListas();await carregarDados(false);renderParametros();});
 
 /* ==================== LOGIN / INIT ==================== */
@@ -2977,7 +3035,7 @@ function updateLoginUI(){const lbl=document.getElementById('ms-login-label'),inf
 function limparDadosLocaisAoSair(){
   clientes=[];obras=[];lancamentos=[];tecnicos=[];alocacoes=[];
   listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[],categoriasSemCusto:[]};
-  acesso={emailsAutorizados:[],emailsComuns:[]};
+  acesso={emailsAutorizados:[],emailsComuns:[],emailsAgenda:[]};
   ultimaSync=null;
   etagClientes=null;etagObras=null;etagLancamentos=null;etagTecnicos=null;etagAlocacoes=null;acessoEtag=null;listasEtag=null;etagTarefasTmo=null;
   orcamentosCache=null;

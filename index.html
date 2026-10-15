@@ -223,6 +223,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
       <button class="btn primary somente-admin" id="btn-nova-obra" type="button">+ Nova Obra</button>
       <button class="btn ghost somente-admin" id="btn-importar-orcamento" type="button">Importar de Orçamento</button>
       <button class="btn ghost somente-admin" id="btn-premiacao-mes" type="button">Premiação do Mês</button>
+      <button class="btn ghost somente-admin" id="btn-atualizar-obras-orcamento" type="button">Atualizar obras com orçamento</button>
     </div>
     <div class="card">
       <h3>Filtros</h3>
@@ -462,6 +463,17 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <div id="status-busca-orcamento" style="font-size:.78rem;color:var(--texto-suave);margin-bottom:10px;"></div>
     <div id="lista-resultados-orcamento"></div>
     <div id="preview-orcamento" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--areia-escura);"></div>
+  </div>
+</div>
+<div class="overlay" id="overlay-atualizar-obras">
+  <div class="box" style="max-width:900px;width:96%;text-align:left;max-height:86vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;">
+      <h2 style="margin:0;">Atualizar obras com dados do orçamento</h2>
+      <button class="btn ghost small" id="btn-fechar-atualizar-obras" type="button">✕ Fechar</button>
+    </div>
+    <p class="nota" style="margin:0 0 10px;">Procura, para cada obra já cadastrada, o orçamento com o mesmo cliente e nome de obra. Traz a margem líquida/imposto orçados e acrescenta as observações do orçamento em "Observações da Obra" (sem apagar o que já está lá e sem alterar o Valor Negociado).</p>
+    <div id="status-atualizar-obras" style="font-size:.8rem;color:var(--texto-suave);margin-bottom:10px;"></div>
+    <div id="lista-atualizar-obras"></div>
   </div>
 </div>
 <div class="overlay" id="overlay-premiacao-mes">
@@ -2725,6 +2737,84 @@ function mostrarPreviewOrcamento(item){
     abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,dataNegociacao:mapa.dataNegociacao,prazoDias:mapa.prazoDias,descricao:mapa.descricao,margemOrcada:mapa.margemOrcada,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
   });
 }
+
+/* ==================== ATUALIZAR OBRAS EXISTENTES COM O ORÇAMENTO ==================== */
+function dataRegistroOrcamento(r){return new Date(r.ultimaEdicao||r.savedAt||0).getTime()||0;}
+function casarObrasComOrcamentos(){
+  return obras.map(o=>{
+    const c=clientePorId(o.clienteId);
+    const nc=normNome(c?c.nome:''),no=normNome(o.nome);
+    const cands=(orcamentosCache||[]).filter(x=>{
+      const info=(x.registro.data&&x.registro.data.info)||{};
+      return normNome(info.cliente)===nc&&nc;
+    });
+    let exatos=cands.filter(x=>normNome(((x.registro.data||{}).info||{}).obra)===no);
+    let aprox=false;
+    if(!exatos.length&&no){
+      exatos=cands.filter(x=>{const ob=normNome(((x.registro.data||{}).info||{}).obra);return ob&&(ob.includes(no)||no.includes(ob));});
+      aprox=exatos.length>0;
+    }
+    exatos.sort((a,b)=>dataRegistroOrcamento(b.registro)-dataRegistroOrcamento(a.registro));
+    return{obra:o,cliente:c,orc:exatos[0]||null,qtd:exatos.length,aprox};
+  });
+}
+function aplicarOrcamentoNaObra(obra,registro){
+  const mapa=mapearOrcamentoParaObra(registro);
+  let mudou=false;
+  if(mapa.margemOrcada){obra.margemOrcada=mapa.margemOrcada;mudou=true;}
+  const blocos=[];
+  if(mapa.obsProposta&&!(obra.descricao||'').includes(mapa.obsProposta))blocos.push('Observações da proposta:\n'+mapa.obsProposta);
+  if(mapa.obsInternas&&!(obra.descricao||'').includes(mapa.obsInternas))blocos.push('Observações internas:\n'+mapa.obsInternas);
+  if(blocos.length){obra.descricao=((obra.descricao||'').trim()?(obra.descricao.trim()+'\n\n'):'')+blocos.join('\n\n');mudou=true;}
+  return mudou;
+}
+async function abrirAtualizarObras(){
+  const ov=document.getElementById('overlay-atualizar-obras');
+  const st=document.getElementById('status-atualizar-obras');
+  const lista=document.getElementById('lista-atualizar-obras');
+  ov.style.display='flex';lista.innerHTML='';
+  st.textContent='⏳ carregando orçamentos da pasta...';
+  const todos=await carregarOrcamentosCache(true);
+  if(!todos){st.textContent='⚠ não consegui acessar a pasta de orçamentos. Confira o login e as permissões.';return;}
+  const pares=casarObrasComOrcamentos();
+  const comMatch=pares.filter(x=>x.orc),sem=pares.filter(x=>!x.orc);
+  st.textContent=`${todos.length} orçamento(s) lidos · ${comMatch.length} de ${pares.length} obra(s) com orçamento correspondente. Marcadas por padrão: correspondência exata. Quando há mais de um orçamento da mesma obra, usa o mais recente.`;
+  const linhas=comMatch.map((x,i)=>{
+    const mo=calcularMargemOrcada(x.orc.registro);
+    const info=(x.orc.registro.data||{}).info||{};
+    const dif=Math.abs(n(x.obra.valorNegociado)-n(x.orc.registro.valorFinal))>1;
+    const jaTem=!!x.obra.margemOrcada;
+    return `<tr><td><input type="checkbox" data-atu="${i}" ${x.aprox?'':'checked'}></td>`+
+      `<td>${escapeHtml((x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome)}${jaTem?' <span class="reg R1">já tem margem</span>':''}</td>`+
+      `<td>${escapeHtml(info.obra||'')}${x.aprox?' <span class="reg R2">aproximada</span>':''}${x.qtd>1?` <span class="nota">(${x.qtd} versões)</span>`:''}<br><span class="nota">${fmtData(new Date(dataRegistroOrcamento(x.orc.registro)).toISOString().slice(0,10))}</span></td>`+
+      `<td class="num">${brl(x.orc.registro.valorFinal)}${dif?`<br><span class="nota" style="color:var(--erro);">negociado ${brl(x.obra.valorNegociado)}</span>`:''}</td>`+
+      `<td class="num">${mo?fmtPctMargem(mo.margemPct)+'<br><span class="nota">'+brl(mo.margemValor)+'</span>':'—'}</td>`+
+      `<td class="num">${mo?fmtPctMargem(mo.impostoPct)+'<br><span class="nota">'+brl(mo.impostoValor)+'</span>':'—'}</td></tr>`;
+  }).join('');
+  lista.innerHTML=(comMatch.length?`<div class="tablewrap"><table class="dt"><thead><tr><th></th><th>Obra cadastrada</th><th>Orçamento encontrado</th><th class="r">Valor orçado</th><th class="r">Margem líquida</th><th class="r">Imposto</th></tr></thead><tbody>${linhas}</tbody></table></div>
+    <div style="margin-top:12px;"><button class="btn primary small" id="btn-aplicar-atualizar-obras" type="button">Atualizar obras marcadas</button> <span id="status-aplicar-atualizar-obras" style="font-size:.78rem;color:var(--texto-suave);margin-left:8px;"></span></div>`:'<p class="nota">Nenhuma obra cadastrada tem orçamento correspondente (cliente + nome da obra iguais).</p>')+
+    (sem.length?`<details style="margin-top:12px;"><summary style="cursor:pointer;font-size:.8rem;">${sem.length} obra(s) sem orçamento correspondente</summary><div class="nota" style="margin-top:6px;">${sem.map(x=>escapeHtml((x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome)).join('<br>')}</div></details>`:'');
+  const btn=document.getElementById('btn-aplicar-atualizar-obras');
+  if(btn)btn.addEventListener('click',async()=>{
+    const marcadas=[...lista.querySelectorAll('[data-atu]:checked')].map(el=>comMatch[Number(el.dataset.atu)]);
+    const stp=document.getElementById('status-aplicar-atualizar-obras');
+    if(!marcadas.length){stp.textContent='⚠ marque ao menos uma obra.';return;}
+    if(!await confirmarAcao(`Atualizar ${marcadas.length} obra(s) com margem orçada e observações do orçamento?`))return;
+    stp.textContent='⏳ salvando…';
+    let alteradas=0;
+    marcadas.forEach(x=>{if(aplicarOrcamentoNaObra(x.obra,x.orc.registro))alteradas++;});
+    const ok=await salvarColecao('obras');
+    if(!ok){stp.textContent='⚠ não foi possível salvar. Tente de novo.';return;}
+    saveCache();
+    stp.textContent=`✔ ${alteradas} obra(s) atualizada(s).`;
+    renderAll();
+  });
+}
+document.getElementById('btn-atualizar-obras-orcamento').addEventListener('click',()=>{
+  if(!souAdmin()){toast('Somente administradores podem atualizar obras com orçamentos.');return;}
+  abrirAtualizarObras();
+});
+document.getElementById('btn-fechar-atualizar-obras').addEventListener('click',()=>{document.getElementById('overlay-atualizar-obras').style.display='none';});
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}
 async function graphPutEtag(fp,body,etag){const t=await getGraphToken();if(!t)return {ok:false,status:0};const base=await spDriveUrl(fp);if(!base)return {ok:false,status:0};const h={Authorization:'Bearer '+t,'Content-Type':'application/octet-stream'};if(etag)h['If-Match']=etag;try{const r=await fetch(base+':/content',{method:'PUT',headers:h,body});let ne=r.headers.get('ETag');if(r.ok){try{const j=await r.json();ne=j.eTag||j.cTag||ne;}catch(e){}}return {ok:r.ok,status:r.status,etag:ne};}catch(e){return {ok:false,status:0};}}
 let _pastaOk=false;

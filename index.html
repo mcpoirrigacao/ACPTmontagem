@@ -1793,13 +1793,26 @@ function calcularCustoOrcamento(d){
   const totalExtras=(d.extras||[]).reduce((s,ex)=>s+n(ex.valorTotal),0);
   return totalPivos+totalAdutora+baseTotal+casaTotal+totalExtras+encargosTime;
 }
+/* O app de orçamentação, ao ABRIR um orçamento salvo, sobrescreve os preços e o imposto salvos pelos
+   Parâmetros globais atuais (parametros.json, na mesma pasta dos históricos). Para bater com a tela do
+   orçamento, aplicamos a mesma regra aqui. */
+let orcamentosParams=null;
+function dadosEfetivosOrcamento(data){
+  const d=Object.assign({},data||{});
+  const p=orcamentosParams;
+  if(p){
+    d.precos=Object.assign({},DEFAULT_PRECOS_ORC,data&&data.precos||{},DEFAULT_PRECOS_ORC,p.precos||{});
+    if(p.imposto!==undefined)d.financeiro=Object.assign({},data&&data.financeiro||{},{imposto:p.imposto});
+  }
+  return d;
+}
 function calcularMargemOrcada(registro){
-  const d=(registro&&registro.data)||{};
+  const d=dadosEfetivosOrcamento(registro&&registro.data);
   const f=d.financeiro||{};
   const V=n(registro&&registro.valorFinal);
   if(!(V>0))return null;
   const impPct=n(f.imposto),margNominal=n(f.margem);
-  let custo=calcularCustoOrcamento(d),origem='recalculado com os dados do orçamento (mesma fórmula do app de orçamentação)';
+  let custo=calcularCustoOrcamento(d),origem='recalculado com a fórmula do app de orçamentação'+(orcamentosParams?' e os Parâmetros atuais (imposto e preços)':' e os valores salvos no orçamento (parametros.json não encontrado)');
   if(!isFinite(custo)||custo<=0){
     const desc=n(f.desconto)/100;
     custo=V/(1-desc)*(1-margNominal/100-impPct/100);origem='estimado pela margem nominal (não foi possível recalcular o custo)';
@@ -2298,6 +2311,10 @@ async function carregarOrcamentosCache(forcar){
     if(Array.isArray(conteudo))conteudo.forEach(registro=>todos.push({arquivo:arq.name,registro}));
   }
   orcamentosCache=todos;
+  try{
+    const pr=await lerArquivoOrcamento('parametros.json');
+    orcamentosParams=(pr&&typeof pr==='object'&&!Array.isArray(pr))?pr:null;
+  }catch(e){orcamentosParams=null;}
   return todos;
 }
 function buscarOrcamentos(termo){
@@ -2326,13 +2343,15 @@ function mapearOrcamentoParaObra(registro){
   const margemOrcada=calcularMargemOrcada(registro);
   const tarefasImportadas=Object.assign({},tasks);
   const sugestoes=sugerirCamposDeTarefas(tarefasImportadas);
+  const precos_orig=precos;
+  const precosEf=dadosEfetivosOrcamento(registro.data).precos||precos_orig;
   const precosImportados={
-    horaEncargo:n(precos.horaEncargo),
-    pctMontador:n(precos.pctMontador),
-    pctAuxiliar:n(precos.pctAuxiliar),
-    tubDN350:n(precos.tubDN350),
-    tubDN450:n(precos.tubDN450),
-    tubDN600:n(precos.tubDN600),
+    horaEncargo:n(precosEf.horaEncargo),
+    pctMontador:n(precosEf.pctMontador),
+    pctAuxiliar:n(precosEf.pctAuxiliar),
+    tubDN350:n(precosEf.tubDN350),
+    tubDN450:n(precosEf.tubDN450),
+    tubDN600:n(precosEf.tubDN600),
     maquinaPead:!!servicos.maquinaPead,
   };
   let prazoDias=equipe.prazoManual!=null&&equipe.prazoManual!==''?n(equipe.prazoManual):null;
@@ -2856,7 +2875,7 @@ async function abrirAtualizarObras(){
   if(!todos){st.textContent='⚠ não consegui acessar a pasta de orçamentos. Confira o login e as permissões.';return;}
   const pares=casarObrasComOrcamentos();
   const comMatch=pares.filter(x=>x.orc),sem=pares.filter(x=>!x.orc);
-  st.textContent=`${todos.length} orçamento(s) lidos · ${comMatch.length} de ${pares.length} obra(s) com orçamento correspondente. Marcadas por padrão: correspondência exata. Quando há mais de um orçamento da mesma obra, usa o mais recente.`;
+  st.textContent=(orcamentosParams?`Imposto e preços: Parâmetros atuais do app de orçamentação (imposto ${fmtPctMargem(n(orcamentosParams.imposto))}). `:'⚠ parametros.json não encontrado na pasta de orçamentos — usando imposto e preços salvos em cada orçamento. ')+`${todos.length} orçamento(s) lidos · ${comMatch.length} de ${pares.length} obra(s) com orçamento correspondente. Marcadas por padrão: correspondência exata. Quando há mais de um orçamento da mesma obra, usa o mais recente.`;
   const linhas=comMatch.map((x,i)=>{
     const mo=calcularMargemOrcada(x.orc.registro);
     const info=(x.orc.registro.data||{}).info||{};

@@ -880,13 +880,14 @@ function renderCardPorObra(baseLancamentos){
     const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
     const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);
     const c=clientePorId(o.clienteId);
-    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),atraso:textoAtraso(o),diasAtraso:diasAtraso(o),custo,recebido,negociado,resultado:negociado-custo};
+    const mx=o.margemOrcada?margemExecutadaObra(o,lancsObra):null;
+    return {nome:(c?c.nome:'?')+' — '+o.nome,status:statusEfetivo(o),atraso:textoAtraso(o),diasAtraso:diasAtraso(o),custo,recebido,negociado,resultado:negociado-custo,margemOrc:o.margemOrcada?o.margemOrcada.margemPct:null,margemExec:mx?mx.margemPct:null};
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
   const limite=filtroCliente?linhas.length:Math.min(linhas.length,20);
   const linhasCorte=linhas.slice(0,limite);
   card.innerHTML=`<h3>Por Obra <span class="h3-side">${filtroCliente?'obras de '+escapeHtml(filtroCliente):'análise individual, principais obras'}</span></h3>`+
-    `<div class="tablewrap"><table class="dt"><thead><tr><th>Obra</th><th>Status</th><th>Atraso</th><th class="r">Custo</th><th class="r">Recebido</th><th class="r">Negociado</th><th class="r">Resultado</th></tr></thead><tbody>`+
-    linhasCorte.map(x=>`<tr><td>${escapeHtml(x.nome)}</td><td>${escapeHtml(x.status)}</td><td style="${(x.diasAtraso!==null&&x.diasAtraso>0)?'color:var(--erro);font-weight:700;':''}">${escapeHtml(x.atraso)}</td><td class="num">${brl(x.custo)}</td><td class="num">${brl(x.recebido)}</td><td class="num">${brl(x.negociado)}</td><td class="num" style="font-weight:700;color:${x.resultado<0?'var(--erro)':'var(--azul-claro)'};">${brl(x.resultado)}</td></tr>`).join('')+
+    `<div class="tablewrap"><table class="dt"><thead><tr><th>Obra</th><th>Status</th><th>Atraso</th><th class="r">Custo</th><th class="r">Recebido</th><th class="r">Negociado</th><th class="r">Resultado</th><th class="r" title="Margem líquida orçada × executada (após imposto)">Margem orç.</th><th class="r">Margem exec.</th></tr></thead><tbody>`+
+    linhasCorte.map(x=>`<tr><td>${escapeHtml(x.nome)}</td><td>${escapeHtml(x.status)}</td><td style="${(x.diasAtraso!==null&&x.diasAtraso>0)?'color:var(--erro);font-weight:700;':''}">${escapeHtml(x.atraso)}</td><td class="num">${brl(x.custo)}</td><td class="num">${brl(x.recebido)}</td><td class="num">${brl(x.negociado)}</td><td class="num" style="font-weight:700;color:${x.resultado<0?'var(--erro)':'var(--azul-claro)'};">${brl(x.resultado)}</td><td class="num">${fmtPctMargem(x.margemOrc)}</td><td class="num" style="${x.margemExec!=null&&x.margemOrc!=null?(x.margemExec<x.margemOrc?'color:var(--erro);font-weight:700;':'color:var(--azul-claro);font-weight:700;'):''}">${fmtPctMargem(x.margemExec)}</td></tr>`).join('')+
     `</tbody></table></div>`+
     (linhas.length>limite?`<div style="font-size:.75rem;color:var(--texto-suave);margin-top:8px;">Mostrando ${limite} de ${linhas.length} obras — filtre por cliente ali no topo para ver todas as dele.</div>`:'');
   card.style.display='';
@@ -1603,9 +1604,11 @@ const ESQUEMAS={
     {chave:'adutora',label:'Adutora (m)',tipo:'number'},
     {chave:'tarefas',label:'Tarefas Planejadas (Projeto Pivô)',tipo:'tarefasEditor',largo:true},
 
+    {chave:'margemOrcada',label:'Margem orçada × executada',tipo:'comparativoMargem',largo:true},
+
     {chave:'premiacao',label:'Premiação / Pagamento aos Técnicos',tipo:'premiacaoEditor',largo:true,secaoAntes:'Premiação'},
 
-    {chave:'descricao',label:'Descrição',tipo:'textarea',largo:true,secaoAntes:'Outras Informações'},
+    {chave:'descricao',label:'Observações da Obra',tipo:'textarea',largo:true,secaoAntes:'Outras Informações'},
   ]},
   tecnico:{titulo:'Técnico',campos:[
     {chave:'nome',label:'Nome',tipo:'text',obrigatorio:true},
@@ -1689,6 +1692,8 @@ function campoHtmlGenerico(campo,valorAtual){
       `<span class="nota">Preencha aqui manualmente se a obra não veio de um orçamento, ou ajuste os valores importados. O botão acima só sugere os 3 campos abaixo — eles continuam editáveis.</span>`;
   }else if(campo.tipo==='cpfMask'){
     inputHtml=`<input type="text" id="${idc}" value="${escapeHtml(formatarCPF(valorAtual||''))}" placeholder="000.000.000-00" maxlength="14" inputmode="numeric">`;
+  }else if(campo.tipo==='comparativoMargem'){
+    inputHtml=`<div id="${idc}__bloco">${htmlComparativoMargem(valorAtual,modalEditandoId)}</div>`;
   }else if(campo.tipo==='historicoEntrega'){
     inputHtml=htmlHistoricoEntrega(valorAtual);
   }else if(campo.tipo==='equipeAcesso'){
@@ -1698,6 +1703,52 @@ function campoHtmlGenerico(campo,valorAtual){
   }
   const secao=campo.secaoAntes?`<div style="grid-column:1/-1;margin-top:6px;"><h3 style="margin:0 0 2px;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--azul-claro);border-bottom:1px solid var(--areia-escura);padding-bottom:6px;">${escapeHtml(campo.secaoAntes)}</h3></div>`:'';
   return secao+`<div class="field"${campo.largo?' style="grid-column:1/-1;"':''}><label>${escapeHtml(campo.label)}${campo.obrigatorio?' *':''}</label>${inputHtml}</div>`;
+}
+/* ==================== MARGEM ORÇADA × EXECUTADA ====================
+   Orçado (vem do orçamento importado): valor da proposta, imposto (%/R$), margem líquida (%/R$) e custo.
+   Mesma fórmula do app de orçamentação: Imposto = Valor × imposto%; Lucro = Valor − Custo − Imposto.
+   Executado: Negociado − imposto% (o mesmo do orçamento) × Negociado − Custo real dos lançamentos
+   (SAIDA, já sem as categorias marcadas como "não compõe custo"). */
+function calcularMargemOrcada(registro){
+  const d=(registro&&registro.data)||{};
+  const f=d.financeiro||{};
+  const V=n(registro&&registro.valorFinal);
+  if(!(V>0))return null;
+  const impPct=n(f.imposto),margPct=n(f.margem),desc=n(f.desconto)/100;
+  let custo,origem;
+  if(f.custoNaAutorizacao!=null&&f.custoNaAutorizacao!==''){custo=n(f.custoNaAutorizacao);origem='custo registrado na autorização do preço';}
+  else if(f.valorFinalManual==null||f.valorFinalManual===''){custo=V/(1-desc)*(1-margPct/100-impPct/100);origem='calculado: valor ÷ (1 − desconto) × (1 − margem − imposto)';}
+  else{custo=V*(1-margPct/100-impPct/100);origem='estimado: valor final foi digitado manualmente no orçamento, custo deduzido da margem nominal';}
+  const impostoValor=V*impPct/100;
+  const margemValor=V-custo-impostoValor;
+  return{valorProposta:round2(V),impostoPct:impPct,impostoValor:round2(impostoValor),margemPct:round2(margemValor/V*100),margemValor:round2(margemValor),margemNominalPct:margPct,custoOrcado:round2(custo),origem,estimado:!(f.custoNaAutorizacao!=null&&f.custoNaAutorizacao!==''||(f.valorFinalManual==null||f.valorFinalManual===''))};
+}
+function margemExecutadaObra(obra,lancs){
+  const mo=obra&&obra.margemOrcada;
+  const negociado=n(obra&&obra.valorNegociado);
+  const custo=somaPorTipo('SAIDA',lancs||[]);
+  const impPct=mo?n(mo.impostoPct):0;
+  const impostoValor=negociado*impPct/100;
+  const margemValor=negociado-impostoValor-custo;
+  return{negociado,custo,impostoPct:impPct,impostoValor,margemValor,margemPct:negociado>0?margemValor/negociado*100:null};
+}
+const round2=(v)=>Math.round(v*100)/100;
+function fmtPctMargem(v){return v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';}
+function htmlComparativoMargem(mo,obraId){
+  if(!mo)return '<span class="nota">Esta obra não veio de um orçamento importado — sem margem orçada para comparar.</span>';
+  const obra=obraId?obras.find(o=>o.id===obraId):null;
+  const lancs=obra?lancamentos.filter(l=>l.obraId===obra.id):[];
+  const ex=obra?margemExecutadaObra(Object.assign({},obra,{margemOrcada:mo}),lancs):null;
+  const dPP=ex&&ex.margemPct!=null?ex.margemPct-mo.margemPct:null;
+  const cor=v=>v==null?'':(v<0?'color:var(--erro);font-weight:700;':'color:var(--azul-claro);font-weight:700;');
+  const lin=(t,a,b,d,dCor)=>`<tr><td>${t}</td><td class="num">${a}</td><td class="num">${b}</td><td class="num" style="${dCor||''}">${d}</td></tr>`;
+  return `<div class="tablewrap"><table class="dt"><thead><tr><th></th><th class="r">Orçado</th><th class="r">Executado</th><th class="r">Diferença</th></tr></thead><tbody>`+
+    lin('Valor (proposta × negociado)',brl(mo.valorProposta),ex?brl(ex.negociado):'—',ex?brl(ex.negociado-mo.valorProposta):'—')+
+    lin('Custo',brl(mo.custoOrcado),ex?brl(ex.custo):'—',ex?brl(ex.custo-mo.custoOrcado):'—',ex?(ex.custo>mo.custoOrcado?'color:var(--erro);font-weight:700;':''):'')+
+    lin('Imposto ('+fmtPctMargem(mo.impostoPct)+')',brl(mo.impostoValor),ex?brl(ex.impostoValor):'—',ex?brl(ex.impostoValor-mo.impostoValor):'—')+
+    lin('Margem líquida (R$)',brl(mo.margemValor),ex?brl(ex.margemValor):'—',ex?brl(ex.margemValor-mo.margemValor):'—',ex?cor(ex.margemValor-mo.margemValor):'')+
+    lin('Margem líquida (%)',fmtPctMargem(mo.margemPct),ex?fmtPctMargem(ex.margemPct):'—',dPP==null?'—':(dPP>=0?'+':'')+dPP.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' p.p.',cor(dPP))+
+    `</tbody></table></div><span class="nota">Executado = Negociado − imposto (${fmtPctMargem(mo.impostoPct)} do orçamento) − custo real dos lançamentos${obra?'':' (disponível após salvar a obra e lançar custos)'}. Custo orçado: ${escapeHtml(mo.origem||'')}.</span>`;
 }
 /* Histórico da data de Entrega de Material (para análise interna): a cada mudança no valor
    salvo, guarda data anterior → nova, quando e por quem. Nunca é editado/apagado pela tela. */
@@ -1980,7 +2031,7 @@ function coletarCampos(entidade){
     if(campo.tipo==='tarefasEditor'){obj[campo.chave]=tarefasEmEdicao;return;}
     if(campo.tipo==='premiacaoEditor'){obj[campo.chave]=pagamentosEmEdicao;return;}
     if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
-    if(campo.tipo==='equipeAcesso'||campo.tipo==='historicoEntrega'){return;}
+    if(campo.tipo==='equipeAcesso'||campo.tipo==='historicoEntrega'||campo.tipo==='comparativoMargem'){return;}
     const el=document.getElementById('campo-modal-'+campo.chave);
     if(!el)return;
     if(campo.tipo==='boolean'){obj[campo.chave]=el.checked;return;}
@@ -2000,6 +2051,7 @@ document.getElementById('btn-salvar-registro').addEventListener('click',async()=
     const novo=Object.assign({id:gerarId(modalEntidade[0])},campos,{criadoEm:new Date().toISOString()});
     if(modalEntidade==='obra'&&seedAtualObra){
       if(seedAtualObra.precosImportados)novo.precosImportados=seedAtualObra.precosImportados;
+      if(seedAtualObra.margemOrcada)novo.margemOrcada=seedAtualObra.margemOrcada;
     }
     if(modalEntidade==='obra')anexarHistoricoEntregaMaterial(novo,'',campos.dataEntregaMaterial);
     colecao.push(novo);
@@ -2182,7 +2234,10 @@ function mapearOrcamentoParaObra(registro){
   if(info.endereco)partes.push('Endereço: '+info.endereco);
   if(info.hectares)partes.push('Hectares: '+info.hectares);
   if(info.numPivos!=null)partes.push('Nº Pivôs: '+info.numPivos);
-  if(registro.data&&registro.data.observacoes)partes.push('Obs: '+registro.data.observacoes);
+  const obsProposta=String((registro.data&&registro.data.observacoes)||'').trim();
+  const fin=(registro.data&&registro.data.financeiro)||{};
+  const obsInternas=String((registro.data&&(registro.data.observacoesInternas||registro.data.obsInternas))||fin.observacoesInternas||'').trim();
+  const margemOrcada=calcularMargemOrcada(registro);
   const tarefasImportadas=Object.assign({},tasks);
   const sugestoes=sugerirCamposDeTarefas(tarefasImportadas);
   const precosImportados={
@@ -2207,7 +2262,8 @@ function mapearOrcamentoParaObra(registro){
     dataNegociacao:registro.savedAt?new Date(registro.savedAt).toISOString().slice(0,10):null,
     prazoDias,
     prazoEstimadoAutomaticamente,
-    descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):''),
+    descricao:'Importado do orçamento.'+(partes.length?' '+partes.join(' · '):'')+(obsProposta?'\n\nObservações da proposta:\n'+obsProposta:'')+(obsInternas?'\n\nObservações internas:\n'+obsInternas:''),
+    obsProposta,obsInternas,margemOrcada,
     tarefas:tarefasImportadas,
     qtdLances:sugestoes.qtdLances,
     qtdBombeamentos:sugestoes.qtdBombeamentos,
@@ -2629,7 +2685,9 @@ function mostrarPreviewOrcamento(item){
       <b>Cliente:</b> ${escapeHtml(mapa.nomeCliente||'—')} ${mapa.nomeCliente?(clienteExistente?'<span class="reg R1">já cadastrado</span>':'<span class="reg R2">novo — será criado</span>'):''}<br>
       <b>Obra:</b> ${escapeHtml(mapa.nomeObra)}<br>
       <b>Valor Negociado:</b> ${brl(mapa.valorNegociado)}${mapa.dataNegociacao?` (${fmtData(mapa.dataNegociacao)})`:''}${mapa.prazoDias?` · <b>Prazo:</b> ${int(mapa.prazoDias)} dias${mapa.prazoEstimadoAutomaticamente?' <span class="reg R2">estimado pelo TMO</span>':''}`:''}<br>
-      <b>Descrição sugerida:</b> ${escapeHtml(mapa.descricao)}<br>
+      <b>Observações da obra (sugeridas):</b> <span style="white-space:pre-wrap;">${escapeHtml(mapa.descricao)}</span><br>
+      ${mapa.obsInternas?'':'<span class="nota">Este orçamento não tem observações internas.</span><br>'}
+      ${mapa.margemOrcada?`<b>Margem líquida orçada:</b> ${fmtPctMargem(mapa.margemOrcada.margemPct)} (${brl(mapa.margemOrcada.margemValor)}) · <b>Imposto:</b> ${fmtPctMargem(mapa.margemOrcada.impostoPct)} (${brl(mapa.margemOrcada.impostoValor)}) · <b>Custo orçado:</b> ${brl(mapa.margemOrcada.custoOrcado)}${mapa.margemOrcada.estimado?' <span class="reg R2">custo estimado</span>':''}<br>`:''}
       <b>QTD Lances:</b> ${int(mapa.qtdLances)} · <b>QTD Bombeamentos:</b> ${int(mapa.qtdBombeamentos)} · <b>Adutora:</b> ${int(mapa.adutora)} m<br>
       <b>TMO Total:</b> ${calc.tmoTotal.toLocaleString('pt-BR',{maximumFractionDigits:2})} h ·
       <b>Premiação Montador:</b> ${brl(calc.laborMont)} · <b>Auxiliar:</b> ${brl(calc.laborAux)}
@@ -2664,7 +2722,7 @@ function mostrarPreviewOrcamento(item){
       saveCache();
     }
     document.getElementById('overlay-importar-orcamento').style.display='none';
-    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,dataNegociacao:mapa.dataNegociacao,prazoDias:mapa.prazoDias,descricao:mapa.descricao,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
+    abrirModal('obra',null,{clienteId:cliente?cliente.id:'',nome:mapa.nomeObra,valorNegociado:mapa.valorNegociado,dataNegociacao:mapa.dataNegociacao,prazoDias:mapa.prazoDias,descricao:mapa.descricao,margemOrcada:mapa.margemOrcada,tarefas:mapa.tarefas,precosImportados:mapa.precosImportados,qtdLances:mapa.qtdLances,qtdBombeamentos:mapa.qtdBombeamentos,adutora:mapa.adutora});
   });
 }
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}

@@ -1731,19 +1731,83 @@ function campoHtmlGenerico(campo,valorAtual){
    Mesma fórmula do app de orçamentação: Imposto = Valor × imposto%; Lucro = Valor − Custo − Imposto.
    Executado: Negociado − imposto% (o mesmo do orçamento) × Negociado − Custo real dos lançamentos
    (SAIDA, já sem as categorias marcadas como "não compõe custo"). */
+/* ==================== CUSTO ORÇADO EXATO (port do compute() do app de orçamentação) ==================== */
+const TASKS_ORC=[['ELET-018',1,'pct'],['ELET-021',4,'pct'],['MONT-002',1,'fix'],['MONT-003',1.5,'fix'],['MONT-004',2,'fix'],['ELET-004',6,'pct'],['ELET-010',1.5,'pct'],['ELET-011',1.5,'pct'],['ELET-012',1.5,'pct'],['ELET-022',1,'pct'],['ELET-023',2,'pct'],['ELET-003',6,'pct'],['ELET-025',5,'pct'],['MONT-005',1.5,'pct'],['MONT-008',14,'pct'],['MONT-006',8,'pct'],['ELET-002',1,'pct'],['ELET-024',3,'pct'],['MONT-001',6.25,'pct'],['ELET-020',3,'pct'],['MONT-010',1,'pct'],['ELET-000',1,'pct'],['ELET-001',3,'pct'],['ELET-008',4,'pct'],['ELET-013',0.5,'pct']].map(x=>({id:x[0],horas:x[1],tipo:x[2]}));
+const DEFAULT_PRECOS_ORC={hospedagem:80,km:3.9,refeicao:80,trator:325,horaTecnica:260,horaAuxiliar:0,caminhao:300,freteKm:8.5,maquinaPead:2500,soldaPead:260,munck:2500,munckMes:40000,freteEscavadeiraKm:13,metroEscavadeira:15,basePivo:18000,casaM2:2500,pctMontador:12,pctAuxiliar:3,tubDN350:1.45,tubDN450:1.70,tubDN600:1.80,horaEncargo:260,fatorComAux:5,fatorSemAux:2};
+function calcularCustoOrcamento(d){
+  if(!d)return null;
+  const ceilDiv=(a,b)=>b<=0?0:Math.ceil(a/b);
+  const P=Object.assign({},DEFAULT_PRECOS_ORC,d.precos||{});
+  const S=d.servicos||{},E=d.equipe||{},tasks=d.tasks||{},info=d.info||{};
+  let tmoPct=0,laborMont=0,laborAux=0,adutoraMetros=0,qtySoldaPead=0;
+  TASKS_ORC.forEach(t=>{
+    const qtd=n(tasks[t.id]);let vMont,vAux;
+    if(t.tipo==='fix'){
+      let vu=0;
+      if(t.id==='MONT-002')vu=n(P.tubDN350);else if(t.id==='MONT-003')vu=n(P.tubDN450);else if(t.id==='MONT-004')vu=n(P.tubDN600);
+      vMont=qtd*vu;vAux=qtd*vu;adutoraMetros+=qtd;
+    }else if(t.id==='MONT-010'){
+      const horasTotal=t.horas*qtd;
+      if(S.maquinaPead){vMont=t.horas*qtd*n(P.horaEncargo)*(n(P.pctMontador)/100);vAux=t.horas*qtd*n(P.horaEncargo)*(n(P.pctAuxiliar)/100);tmoPct+=horasTotal;}
+      else{vMont=0;vAux=0;}
+    }else{
+      const horasTotal=t.horas*qtd;
+      vMont=t.horas*qtd*n(P.horaEncargo)*(n(P.pctMontador)/100);vAux=t.horas*qtd*n(P.horaEncargo)*(n(P.pctAuxiliar)/100);tmoPct+=horasTotal;
+    }
+    if(t.id==='MONT-010')qtySoldaPead=qtd;
+    laborMont+=vMont;laborAux+=vAux;
+  });
+  let adutoraHorasEspecial=0;
+  if(adutoraMetros>0&&adutoraMetros<499)adutoraHorasEspecial=8;else if(adutoraMetros>=499)adutoraHorasEspecial=(adutoraMetros/500)*10;
+  const tmoTotal=tmoPct+adutoraHorasEspecial;
+  const encargosTime=laborMont+laborAux;
+  const qtdEquipes=Math.max(1,n(E.qtdEquipes));
+  const auxAdicionais=n(E.auxAdicionais)||0;
+  const pessoasBase=S.auxiliares?qtdEquipes*n(P.fatorComAux):qtdEquipes*n(P.fatorSemAux);
+  const qtdPessoas=pessoasBase+auxAdicionais;
+  const diasCorridos=(n(E.adcHr)+tmoTotal)/8+(tmoTotal/8*0.3);
+  const prazoEstimado=(E.prazoManual!=null)?n(E.prazoManual):Math.max(1,ceilDiv(diasCorridos,qtdEquipes));
+  const hospQtd=prazoEstimado*qtdPessoas;
+  const hospTotal=S.hospedagem?hospQtd*n(P.hospedagem):0;
+  const kmQtd=(qtdEquipes*Math.max(n(E.kmDiario),25)*prazoEstimado)+(n(E.kmOrigem)*qtdEquipes*ceilDiv(prazoEstimado,30))*2;
+  const kmTotal=kmQtd*n(P.km);
+  const almocoJantar=S.alimAlmoco&&S.alimJantar,algumaRefeicao=S.alimAlmoco||S.alimJantar;
+  const alimQtd=prazoEstimado*qtdPessoas;
+  const alimTotal=almocoJantar?alimQtd*n(P.refeicao):(algumaRefeicao?(alimQtd*n(P.refeicao))/2:0);
+  const tratorTotal=S.trator?n(E.diasTrator)*n(P.trator):0;
+  const horaQtd=n(E.adcHr)+tmoTotal;
+  const custoHoraAux=(qtdPessoas>1)?(qtdPessoas-1)*n(P.horaAuxiliar)*horaQtd:0;
+  const horaTotal=horaQtd*n(P.horaTecnica)+custoHoraAux;
+  const caminhaoTotal=S.caminhao?n(E.diasCaminhao)*n(P.caminhao):0;
+  const freteTotal=S.freteMcpo?n(E.kmLoja)*n(P.freteKm)*2:0;
+  const peadDias=ceilDiv(qtySoldaPead,10);
+  const peadAluguel=S.maquinaPead?peadDias*n(P.maquinaPead):0;
+  const peadSoldas=S.maquinaPead?qtySoldaPead*n(P.soldaPead):0;
+  const munckTotal=S.munck?(n(E.diasMunck)<17?n(E.diasMunck)*n(P.munck):ceilDiv(n(E.diasMunck),30)*n(P.munckMes)):0;
+  const totalPivos=hospTotal+kmTotal+alimTotal+tratorTotal+horaTotal+caminhaoTotal+freteTotal+peadAluguel+peadSoldas+munckTotal;
+  const fEscTotal=S.escavadeira?n(E.kmLoja)*n(P.freteEscavadeiraKm)*2:0;
+  const escTotal=S.escavadeira?adutoraMetros*n(P.metroEscavadeira):0;
+  const totalAdutora=fEscTotal+escTotal;
+  const baseTotal=S.basePivo?n(info.numPivos)*n(P.basePivo):0;
+  const casaTotal=S.casaPadrao?n(E.casaM2)*n(P.casaM2):0;
+  const totalExtras=(d.extras||[]).reduce((s,ex)=>s+n(ex.valorTotal),0);
+  return totalPivos+totalAdutora+baseTotal+casaTotal+totalExtras+encargosTime;
+}
 function calcularMargemOrcada(registro){
   const d=(registro&&registro.data)||{};
   const f=d.financeiro||{};
   const V=n(registro&&registro.valorFinal);
   if(!(V>0))return null;
-  const impPct=n(f.imposto),margPct=n(f.margem),desc=n(f.desconto)/100;
-  let custo,origem;
-  if(f.custoNaAutorizacao!=null&&f.custoNaAutorizacao!==''){custo=n(f.custoNaAutorizacao);origem='custo registrado na autorização do preço';}
-  else if(f.valorFinalManual==null||f.valorFinalManual===''){custo=V/(1-desc)*(1-margPct/100-impPct/100);origem='calculado: valor ÷ (1 − desconto) × (1 − margem − imposto)';}
-  else{custo=V*(1-margPct/100-impPct/100);origem='estimado: valor final foi digitado manualmente no orçamento, custo deduzido da margem nominal';}
+  const impPct=n(f.imposto),margNominal=n(f.margem);
+  let custo=calcularCustoOrcamento(d),origem='recalculado com os dados do orçamento (mesma fórmula do app de orçamentação)';
+  if(!isFinite(custo)||custo<=0){
+    const desc=n(f.desconto)/100;
+    custo=V/(1-desc)*(1-margNominal/100-impPct/100);origem='estimado pela margem nominal (não foi possível recalcular o custo)';
+  }
   const impostoValor=V*impPct/100;
   const margemValor=V-custo-impostoValor;
-  return{valorProposta:round2(V),impostoPct:impPct,impostoValor:round2(impostoValor),margemPct:round2(margemValor/V*100),margemValor:round2(margemValor),margemNominalPct:margPct,custoOrcado:round2(custo),origem,estimado:!(f.custoNaAutorizacao!=null&&f.custoNaAutorizacao!==''||(f.valorFinalManual==null||f.valorFinalManual===''))};
+  const margemPct=margemValor/V*100;
+  return{valorProposta:round2(V),impostoPct:impPct,impostoValor:round2(impostoValor),margemPct:round2(margemPct),margemValor:round2(margemValor),margemNominalPct:margNominal,custoOrcado:round2(custo),origem,estimado:false,divergeDoNominal:Math.abs(margemPct-margNominal)>2};
 }
 function margemExecutadaObra(obra,lancs){
   const mo=obra&&obra.margemOrcada;
@@ -2749,7 +2813,11 @@ function mostrarPreviewOrcamento(item){
 }
 
 /* ==================== ATUALIZAR OBRAS EXISTENTES COM O ORÇAMENTO ==================== */
-function dataRegistroOrcamento(r){return new Date(r.ultimaEdicao||r.savedAt||0).getTime()||0;}
+function dataRegistroOrcamento(r){
+  const cand=[r&&r.ultimaEdicao&&typeof r.ultimaEdicao==='object'?r.ultimaEdicao.em:r&&r.ultimaEdicao,r&&r.savedAt];
+  for(const c of cand){if(c==null||c==='')continue;const t=typeof c==='number'?c:new Date(c).getTime();if(isFinite(t)&&t>0)return t;}
+  return 0;
+}
 function casarObrasComOrcamentos(){
   return obras.map(o=>{
     const c=clientePorId(o.clienteId);
@@ -2794,14 +2862,19 @@ async function abrirAtualizarObras(){
     const info=(x.orc.registro.data||{}).info||{};
     const dif=Math.abs(n(x.obra.valorNegociado)-n(x.orc.registro.valorFinal))>1;
     const jaTem=!!x.obra.margemOrcada;
-    return `<tr><td><input type="checkbox" data-atu="${i}" ${x.aprox?'':'checked'}></td>`+
+    const mp=mapearOrcamentoParaObra(x.orc.registro);
+    const obsTxt=[mp.obsProposta?'Proposta: '+mp.obsProposta:'',mp.obsInternas?'Internas: '+mp.obsInternas:''].filter(Boolean).join(' | ');
+    const obsJaTem=(!mp.obsProposta||(x.obra.descricao||'').includes(mp.obsProposta))&&(!mp.obsInternas||(x.obra.descricao||'').includes(mp.obsInternas));
+    const suspeito=mo&&mo.margemPct<0;
+    return `<tr><td><input type="checkbox" data-atu="${i}" ${(x.aprox||suspeito)?'':'checked'}></td>`+
       `<td>${escapeHtml((x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome)}${jaTem?' <span class="reg R1">já tem margem</span>':''}</td>`+
-      `<td>${escapeHtml(info.obra||'')}${x.aprox?' <span class="reg R2">aproximada</span>':''}${x.qtd>1?` <span class="nota">(${x.qtd} versões)</span>`:''}<br><span class="nota">${fmtData(new Date(dataRegistroOrcamento(x.orc.registro)).toISOString().slice(0,10))}</span></td>`+
+      `<td>${escapeHtml(info.obra||'')}${x.aprox?' <span class="reg R2">aproximada</span>':''}${x.qtd>1?` <span class="nota">(${x.qtd} versões)</span>`:''}<br><span class="nota">${dataRegistroOrcamento(x.orc.registro)?fmtData(new Date(dataRegistroOrcamento(x.orc.registro)).toISOString().slice(0,10)):'sem data'}</span></td>`+
       `<td class="num">${brl(x.orc.registro.valorFinal)}${dif?`<br><span class="nota" style="color:var(--erro);">negociado ${brl(x.obra.valorNegociado)}</span>`:''}</td>`+
       `<td class="num">${mo?fmtPctMargem(mo.margemPct)+'<br><span class="nota">'+brl(mo.margemValor)+'</span>':'—'}</td>`+
-      `<td class="num">${mo?fmtPctMargem(mo.impostoPct)+'<br><span class="nota">'+brl(mo.impostoValor)+'</span>':'—'}</td></tr>`;
+      `<td class="num">${mo?fmtPctMargem(mo.impostoPct)+'<br><span class="nota">'+brl(mo.impostoValor)+'</span>':'—'}</td>`+
+      `<td style="max-width:200px;font-size:.76rem;">${obsTxt?escapeHtml(obsTxt.length>140?obsTxt.slice(0,140)+'…':obsTxt)+(obsJaTem?' <span class="reg R1">já incluídas</span>':''):'<span class="nota">sem observações no orçamento</span>'}${mo&&mo.divergeDoNominal?`<br><span class="reg R2" title="Margem nominal do orçamento: ${fmtPctMargem(mo.margemNominalPct)}">margem real ≠ nominal (${fmtPctMargem(mo.margemNominalPct)})</span>`:''}${suspeito?'<br><span class="reg R2">margem negativa — conferir</span>':''}</td></tr>`;
   }).join('');
-  lista.innerHTML=(comMatch.length?`<div class="tablewrap"><table class="dt"><thead><tr><th></th><th>Obra cadastrada</th><th>Orçamento encontrado</th><th class="r">Valor orçado</th><th class="r">Margem líquida</th><th class="r">Imposto</th></tr></thead><tbody>${linhas}</tbody></table></div>
+  lista.innerHTML=(comMatch.length?`<div class="tablewrap"><table class="dt"><thead><tr><th></th><th>Obra cadastrada</th><th>Orçamento encontrado</th><th class="r">Valor orçado</th><th class="r">Margem líquida</th><th class="r">Imposto</th><th>Observações a acrescentar</th></tr></thead><tbody>${linhas}</tbody></table></div>
     <div style="margin-top:12px;"><button class="btn primary small" id="btn-aplicar-atualizar-obras" type="button">Atualizar obras marcadas</button> <span id="status-aplicar-atualizar-obras" style="font-size:.78rem;color:var(--texto-suave);margin-left:8px;"></span></div>`:'<p class="nota">Nenhuma obra cadastrada tem orçamento correspondente (cliente + nome da obra iguais).</p>')+
     (sem.length?`<details style="margin-top:12px;"><summary style="cursor:pointer;font-size:.8rem;">${sem.length} obra(s) sem orçamento correspondente</summary><div class="nota" style="margin-top:6px;">${sem.map(x=>escapeHtml((x.cliente?x.cliente.nome:'?')+' — '+x.obra.nome)).join('<br>')}</div></details>`:'');
   const btn=document.getElementById('btn-aplicar-atualizar-obras');

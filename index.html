@@ -934,21 +934,28 @@ function renderRegional(){
 /* ============================ AGENDA ============================ */
 let agendaAno=new Date().getFullYear(),agendaMes=new Date().getMonth();
 const CORES_STATUS_PALETA=['#0a7517','#c1541c','#1f8c33','#a3312a','#cf9b3e','#5f6e62','#03590f'];
-const CORES_STATUS_FIXAS={'Em andamento':'#0a7517','Pausada':'#5f6e62','Andamento Atrasada':'#a3312a','Concluída':'#1f8c33'};
+const CORES_STATUS_FIXAS={'Pendente':'#cf9b3e','Em andamento':'#0a7517','Pausada':'#5f6e62','Andamento Atrasada':'#a3312a','Concluída':'#1f8c33'};
 function corParaStatus(status){
   if(CORES_STATUS_FIXAS[status])return CORES_STATUS_FIXAS[status];
   if(!status)return '#5f6e62';
   let h=0;for(let i=0;i<status.length;i++)h=(h*31+status.charCodeAt(i))>>>0;
   return CORES_STATUS_PALETA[h%CORES_STATUS_PALETA.length];
 }
+/* Datas "YYYY-MM-DD" (campos de data) devem ser lidas como dia LOCAL. new Date('2026-10-15') é meia-noite UTC,
+   o que no Brasil (UTC-3) vira o dia anterior e deslocava início/pendência/agenda em 1 dia. */
+function dataLocal(v){
+  if(v instanceof Date)return new Date(v.getTime());
+  if(typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)){const [y,m,d]=v.split('-').map(Number);return new Date(y,m-1,d);}
+  return new Date(v);
+}
 function dataPrevistaConclusao(obra){
   if(!obra.dataInicio)return null;
-  const inicio=new Date(obra.dataInicio);
+  const inicio=dataLocal(obra.dataInicio);
   if(isNaN(inicio))return null;
   let fim=obra.prazoDias?new Date(inicio.getTime()+Number(obra.prazoDias)*86400000):new Date(inicio);
   (obra.pausas||[]).forEach(p=>{
     if(p.inicio&&p.fim){
-      const pi=new Date(p.inicio),pf=new Date(p.fim);
+      const pi=dataLocal(p.inicio),pf=dataLocal(p.fim);
       if(!isNaN(pi)&&!isNaN(pf)&&pf>pi)fim=new Date(fim.getTime()+(pf.getTime()-pi.getTime()));
     }
   });
@@ -957,8 +964,8 @@ function dataPrevistaConclusao(obra){
 function diaEmPausa(obra,dataAtual){
   return (obra.pausas||[]).some(p=>{
     if(!p.inicio)return false;
-    const pi=new Date(p.inicio);if(isNaN(pi))return false;
-    const pf=p.fim?new Date(p.fim):new Date();
+    const pi=dataLocal(p.inicio);if(isNaN(pi))return false;
+    const pf=p.fim?dataLocal(p.fim):new Date();
     const piDia=new Date(pi.getFullYear(),pi.getMonth(),pi.getDate());
     const pfDia=new Date(pf.getFullYear(),pf.getMonth(),pf.getDate());
     return dataAtual>=piDia&&dataAtual<=pfDia;
@@ -968,7 +975,7 @@ function diaEmPausa(obra,dataAtual){
    Cada alocação liga um técnico a uma obra por um período (dataFim null = ainda em andamento).
    Nunca é apagada de fato: remover/substituir marca ativa=false e guarda quando/por quê,
    preservando o histórico. Conflito = mesmo técnico com 2 alocações ATIVAS cujos períodos se cruzam. */
-function diaZerado(v){const d=v instanceof Date?v:new Date(v);if(isNaN(d))return null;return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
+function diaZerado(v){const d=v instanceof Date?v:dataLocal(v);if(isNaN(d))return null;return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
 function periodosSeSobrepoem(iniA,fimA,iniB,fimB){
   const a1=diaZerado(iniA),a2=fimA?diaZerado(fimA):null;
   const b1=diaZerado(iniB),b2=fimB?diaZerado(fimB):null;
@@ -1056,7 +1063,8 @@ function disponibilidadeTecnicosNoPeriodo(dataInicio,dataFim){
    nesse caso não há como calcular nada, então mantém o que já existia. */
 function statusEfetivo(obra){
   if(obra.concluida)return 'Concluída';
-  if(!obra.dataInicio)return obra.status||'Em andamento';
+  /* Mesma regra da lista "Obras pendentes" da Agenda: sem Data de Início, ou início hoje/futuro = Pendente. */
+  if(obraEhPendente(obra))return 'Pendente';
   const hoje=new Date();const hojeZerado=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
   if(diaEmPausa(obra,hojeZerado))return 'Pausada';
   const prevista=dataPrevistaConclusao(obra);
@@ -1070,13 +1078,14 @@ function statusEfetivo(obra){
    (se já concluída) ou com hoje (se ainda em andamento/atrasada). Positivo = dias de atraso;
    negativo = dias de adiantamento; null = não há previsão calculável (sem Data de Início). */
 function diasAtraso(obra){
+  if(!obra.concluida&&obraEhPendente(obra))return null;
   const prevista=dataPrevistaConclusao(obra);
   if(!prevista)return null;
   const previstaDia=new Date(prevista.getFullYear(),prevista.getMonth(),prevista.getDate());
   let referencia;
   if(obra.concluida){
     if(!obra.dataConclusao)return null;
-    const dc=new Date(obra.dataConclusao);
+    const dc=dataLocal(obra.dataConclusao);
     if(isNaN(dc))return null;
     referencia=new Date(dc.getFullYear(),dc.getMonth(),dc.getDate());
   }else{
@@ -1108,7 +1117,7 @@ function obrasNoIntervalo(){
   return obras.map(o=>{
     if(!o.dataInicio)return null;
     if(!obraPassaFiltroAgenda(o))return null;
-    const inicio=new Date(o.dataInicio);
+    const inicio=dataLocal(o.dataInicio);
     if(isNaN(inicio))return null;
     let fim=dataPrevistaConclusao(o)||inicio;
     if(!o.concluida){
@@ -1121,7 +1130,7 @@ function obrasNoIntervalo(){
 }
 function diasNegociacaoAteInicio(obra){
   if(!obra.dataNegociacao||!obra.dataInicio)return null;
-  const dn=new Date(obra.dataNegociacao),di=new Date(obra.dataInicio);
+  const dn=dataLocal(obra.dataNegociacao),di=dataLocal(obra.dataInicio);
   if(isNaN(dn)||isNaN(di))return null;
   const dnZero=new Date(dn.getFullYear(),dn.getMonth(),dn.getDate());
   const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
@@ -1129,7 +1138,7 @@ function diasNegociacaoAteInicio(obra){
 }
 function diasAteInicio(obra){
   if(!obra.dataInicio)return null;
-  const di=new Date(obra.dataInicio);
+  const di=dataLocal(obra.dataInicio);
   if(isNaN(di))return null;
   const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
   const hoje=new Date();const hojeZero=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
@@ -1138,7 +1147,7 @@ function diasAteInicio(obra){
 function obraEhPendente(obra){
   if(obra.concluida)return false;
   if(!obra.dataInicio)return true;
-  const di=new Date(obra.dataInicio);
+  const di=dataLocal(obra.dataInicio);
   if(isNaN(di))return true;
   const hoje=new Date();const hojeZero=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
   const diZero=new Date(di.getFullYear(),di.getMonth(),di.getDate());
@@ -1465,7 +1474,8 @@ document.getElementById('btn-limpar-filtros-obras').addEventListener('click',()=
 });
 function obraSemTecnicoHoje(obra){
   const status=statusEfetivo(obra);
-  if(status!=='Em andamento'&&status!=='Andamento Atrasada')return false;
+  const comecaHoje=status==='Pendente'&&obra.dataInicio&&diasAteInicio(obra)===0;
+  if(!comecaHoje&&status!=='Em andamento'&&status!=='Andamento Atrasada')return false;
   const hoje=new Date();const hojeZerado=new Date(hoje.getFullYear(),hoje.getMonth(),hoje.getDate());
   return tecnicosAlocadosNaObraEmData(obra.id,hojeZerado).length===0;
 }

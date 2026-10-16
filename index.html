@@ -906,10 +906,10 @@ function renderCardPorObra(baseLancamentos){
   document.getElementById('btn-exportar-por-obra').onclick=()=>exportarPorObraExcel(baseLancamentos);
 }
 /* Exporta o card "Por Obra" completo (todas as obras do filtro atual do Painel, não só as 20 da tela). */
-function exportarPorObraExcel(baseLancamentos){
+async function exportarPorObraExcel(baseLancamentos){
   const obrasBase=obrasFiltradasPeloPainel();
   if(!obrasBase.length){toast('Nenhuma obra para exportar.');return;}
-  if(typeof XLSX==='undefined'){toast('Biblioteca de Excel não carregou. Recarregue a página.');return;}
+  try{await loadSheetJs();}catch(e){toast('Não consegui carregar a biblioteca de Excel (sem acesso à internet/CDN). Tente de novo.');return;}
   const linhas=obrasBase.map(o=>{
     const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
     const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);

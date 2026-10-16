@@ -897,12 +897,65 @@ function renderCardPorObra(baseLancamentos){
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
   const limite=filtroCliente?linhas.length:Math.min(linhas.length,20);
   const linhasCorte=linhas.slice(0,limite);
-  card.innerHTML=`<h3>Por Obra <span class="h3-side">${filtroCliente?'obras de '+escapeHtml(filtroCliente):'análise individual, principais obras'}</span></h3>`+
+  card.innerHTML=`<h3>Por Obra <span class="h3-side">${filtroCliente?'obras de '+escapeHtml(filtroCliente):'análise individual, principais obras'}</span> <button type="button" class="btn ghost small" id="btn-exportar-por-obra" style="float:right;margin-top:-4px;">⬇ Exportar Excel (todas as obras)</button></h3>`+
     `<div class="tablewrap"><table class="dt"><thead><tr><th>Obra</th><th>Status</th><th>Atraso</th><th class="r">Custo</th><th class="r">Recebido</th><th class="r">Negociado</th><th class="r">Resultado</th><th class="r" title="Margem líquida orçada × executada (após imposto)">Margem orç.</th><th class="r">Margem exec.</th></tr></thead><tbody>`+
     linhasCorte.map(x=>`<tr><td>${escapeHtml(x.nome)}</td><td>${escapeHtml(x.status)}</td><td style="${(x.diasAtraso!==null&&x.diasAtraso>0)?'color:var(--erro);font-weight:700;':''}">${escapeHtml(x.atraso)}</td><td class="num">${brl(x.custo)}</td><td class="num">${brl(x.recebido)}</td><td class="num">${brl(x.negociado)}</td><td class="num" style="font-weight:700;color:${x.resultado<0?'var(--erro)':'var(--azul-claro)'};">${brl(x.resultado)}</td><td class="num">${fmtPctMargem(x.margemOrc)}</td><td class="num" style="${x.margemExec!=null&&x.margemOrc!=null?(x.margemExec<x.margemOrc?'color:var(--erro);font-weight:700;':'color:var(--azul-claro);font-weight:700;'):''}">${fmtPctMargem(x.margemExec)}</td></tr>`).join('')+
     `</tbody></table></div>`+
-    (linhas.length>limite?`<div style="font-size:.75rem;color:var(--texto-suave);margin-top:8px;">Mostrando ${limite} de ${linhas.length} obras — filtre por cliente ali no topo para ver todas as dele.</div>`:'');
+    (linhas.length>limite?`<div style="font-size:.75rem;color:var(--texto-suave);margin-top:8px;">Mostrando ${limite} de ${linhas.length} obras na tela — o Excel exporta todas (${linhas.length}).</div>`:'');
   card.style.display='';
+  document.getElementById('btn-exportar-por-obra').onclick=()=>exportarPorObraExcel(baseLancamentos);
+}
+/* Exporta o card "Por Obra" completo (todas as obras do filtro atual do Painel, não só as 20 da tela). */
+function exportarPorObraExcel(baseLancamentos){
+  const obrasBase=obrasFiltradasPeloPainel();
+  if(!obrasBase.length){toast('Nenhuma obra para exportar.');return;}
+  if(typeof XLSX==='undefined'){toast('Biblioteca de Excel não carregou. Recarregue a página.');return;}
+  const linhas=obrasBase.map(o=>{
+    const lancsObra=baseLancamentos.filter(l=>l.obraId===o.id);
+    const custo=somaPorTipo('SAIDA',lancsObra),recebido=somaPorTipo('ENTRADA',lancsObra),negociado=n(o.valorNegociado);
+    const c=clientePorId(o.clienteId);
+    const mo=o.margemOrcada||null;
+    const mx=mo?margemExecutadaObra(o,lancsObra):null;
+    const prev=dataPrevistaConclusao(o);
+    const da=diasAtraso(o);
+    return{
+      cliente:c?c.nome:'?',obra:o.nome,regional:c?(c.regional||''):'',categoria:o.categoria||'',status:statusEfetivo(o),
+      inicio:o.dataInicio?fmtData(o.dataInicio):'',previsao:prev?fmtData(prev.toISOString().slice(0,10)):'',
+      atraso:da==null?'':da,
+      custo:round2(custo),recebido:round2(recebido),negociado:round2(negociado),resultado:round2(negociado-custo),
+      impostoPct:mo?mo.impostoPct/100:'',valorOrc:mo?mo.valorProposta:'',custoOrc:mo?mo.custoOrcado:'',
+      margemOrcPct:mo?mo.margemPct/100:'',margemOrcValor:mo?mo.margemValor:'',
+      impostoExec:mx?round2(mx.impostoValor):'',margemExecPct:mx&&mx.margemPct!=null?mx.margemPct/100:'',margemExecValor:mx?round2(mx.margemValor):'',
+      difPP:mx&&mx.margemPct!=null?round2((mx.margemPct-mo.margemPct)):'',
+    };
+  }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
+  const cab=['Cliente','Obra','Regional','Categoria','Status','Data de Início','Previsão de Término','Atraso (dias; negativo = adiantada)','Custo (R$)','Recebido (R$)','Negociado (R$)','Resultado (R$) = Negociado − Custo','Imposto orçado (%)','Valor orçado (R$)','Custo orçado (R$)','Margem líquida orçada (%)','Margem líquida orçada (R$)','Imposto executado (R$)','Margem líquida executada (%)','Margem líquida executada (R$)','Diferença de margem (p.p.)'];
+  const dados=linhas.map(x=>[x.cliente,x.obra,x.regional,x.categoria,x.status,x.inicio,x.previsao,x.atraso,x.custo,x.recebido,x.negociado,x.resultado,x.impostoPct,x.valorOrc,x.custoOrc,x.margemOrcPct,x.margemOrcValor,x.impostoExec,x.margemExecPct,x.margemExecValor,x.difPP]);
+  const aoa=[cab].concat(dados);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const ult=dados.length+1;
+  // linha de totais (fórmulas SUM com valor já calculado, para abrir certo em qualquer leitor)
+  const somaCol=(i)=>dados.reduce((a,r)=>a+(typeof r[i]==='number'?r[i]:0),0);
+  const colLetra=i=>String.fromCharCode(65+i);
+  const totRow=ult+1;
+  ws['A'+totRow]={t:'s',v:'TOTAL'};
+  [8,9,10,11,13,14,16,17,19].forEach(i=>{ws[colLetra(i)+totRow]={t:'n',f:`SUM(${colLetra(i)}2:${colLetra(i)}${ult})`,v:round2(somaCol(i)),z:'#,##0.00'};});
+  ws['!ref']=`A1:${colLetra(cab.length-1)}${totRow}`;
+  const fmtMoeda='#,##0.00',fmtPct='0.0%';
+  for(let r=2;r<=ult;r++){
+    [8,9,10,11,13,14,16,17,19].forEach(i=>{const c=ws[colLetra(i)+r];if(c&&c.t==='n')c.z=fmtMoeda;});
+    [12,15,18].forEach(i=>{const c=ws[colLetra(i)+r];if(c&&c.t==='n')c.z=fmtPct;});
+    const d=ws['U'+r];if(d&&d.t==='n')d.z='0.0';
+  }
+  ws['!cols']=[{wch:28},{wch:30},{wch:12},{wch:14},{wch:18},{wch:14},{wch:16},{wch:18},{wch:15},{wch:15},{wch:15},{wch:20},{wch:12},{wch:15},{wch:15},{wch:16},{wch:17},{wch:16},{wch:17},{wch:18},{wch:14}];
+  ws['!freeze']={xSplit:2,ySplit:1};
+  ws['!autofilter']={ref:`A1:${colLetra(cab.length-1)}${ult}`};
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Por Obra');
+  const hoje=new Date();
+  const nome='por_obra_'+hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0')+'-'+String(hoje.getDate()).padStart(2,'0')+'.xlsx';
+  XLSX.writeFile(wb,nome);
+  toast(`Excel gerado com ${linhas.length} obra(s).`);
 }
 
 /* ============================ PAINEL / REGIONAL ============================ */

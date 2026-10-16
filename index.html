@@ -927,10 +927,11 @@ async function exportarPorObraExcel(baseLancamentos){
       margemOrcPct:mo?mo.margemPct/100:'',margemOrcValor:mo?mo.margemValor:'',
       impostoExec:mx?round2(mx.impostoValor):'',margemExecPct:mx&&mx.margemPct!=null?mx.margemPct/100:'',margemExecValor:mx?round2(mx.margemValor):'',
       difPP:mx&&mx.margemPct!=null?round2((mx.margemPct-mo.margemPct)):'',
+      observacao:String(o.descricao||'').trim(),
     };
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
-  const cab=['Cliente','Obra','Regional','Categoria','Status','Data de Início','Previsão de Término','Atraso (dias; negativo = adiantada)','Custo (R$)','Recebido (R$)','Negociado (R$)','Resultado (R$) = Negociado − Custo','Imposto orçado (%)','Valor orçado (R$)','Custo orçado (R$)','Margem líquida orçada (%)','Margem líquida orçada (R$)','Imposto executado (R$)','Margem líquida executada (%)','Margem líquida executada (R$)','Diferença de margem (p.p.)'];
-  const dados=linhas.map(x=>[x.cliente,x.obra,x.regional,x.categoria,x.status,x.inicio,x.previsao,x.atraso,x.custo,x.recebido,x.negociado,x.resultado,x.impostoPct,x.valorOrc,x.custoOrc,x.margemOrcPct,x.margemOrcValor,x.impostoExec,x.margemExecPct,x.margemExecValor,x.difPP]);
+  const cab=['Cliente','Obra','Regional','Categoria','Status','Data de Início','Previsão de Término','Atraso (dias; negativo = adiantada)','Custo (R$)','Recebido (R$)','Negociado (R$)','Resultado (R$) = Negociado − Custo','Imposto orçado (%)','Valor orçado (R$)','Custo orçado (R$)','Margem líquida orçada (%)','Margem líquida orçada (R$)','Imposto executado (R$)','Margem líquida executada (%)','Margem líquida executada (R$)','Diferença de margem (p.p.)','Observações da Obra'];
+  const dados=linhas.map(x=>[x.cliente,x.obra,x.regional,x.categoria,x.status,x.inicio,x.previsao,x.atraso,x.custo,x.recebido,x.negociado,x.resultado,x.impostoPct,x.valorOrc,x.custoOrc,x.margemOrcPct,x.margemOrcValor,x.impostoExec,x.margemExecPct,x.margemExecValor,x.difPP,x.observacao]);
   const aoa=[cab].concat(dados);
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   const ult=dados.length+1;
@@ -947,7 +948,7 @@ async function exportarPorObraExcel(baseLancamentos){
     [12,15,18].forEach(i=>{const c=ws[colLetra(i)+r];if(c&&c.t==='n')c.z=fmtPct;});
     const d=ws['U'+r];if(d&&d.t==='n')d.z='0.0';
   }
-  ws['!cols']=[{wch:28},{wch:30},{wch:12},{wch:14},{wch:18},{wch:14},{wch:16},{wch:18},{wch:15},{wch:15},{wch:15},{wch:20},{wch:12},{wch:15},{wch:15},{wch:16},{wch:17},{wch:16},{wch:17},{wch:18},{wch:14}];
+  ws['!cols']=[{wch:28},{wch:30},{wch:12},{wch:14},{wch:18},{wch:14},{wch:16},{wch:18},{wch:15},{wch:15},{wch:15},{wch:20},{wch:12},{wch:15},{wch:15},{wch:16},{wch:17},{wch:16},{wch:17},{wch:18},{wch:14},{wch:80}];
   ws['!freeze']={xSplit:2,ySplit:1};
   ws['!autofilter']={ref:`A1:${colLetra(cab.length-1)}${ult}`};
   const wb=XLSX.utils.book_new();

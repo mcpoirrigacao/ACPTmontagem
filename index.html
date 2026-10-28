@@ -244,7 +244,7 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
     <div class="card">
       <div class="tablewrap">
         <table class="dt">
-          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Atraso</th><th>Previsão de Término</th><th>Categoria</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Obra</th><th>Status</th><th>Atraso</th><th>Previsão de Término</th><th>Cód. Projeto</th><th class="r">Negociado</th><th class="r">Lançamentos</th><th class="somente-admin">Ações</th></tr></thead>
           <tbody id="tbody-obras"></tbody>
         </table>
       </div>
@@ -923,7 +923,7 @@ async function exportarPorObraExcel(baseLancamentos){
     const prev=dataPrevistaConclusao(o);
     const da=diasAtraso(o);
     return{
-      cliente:c?c.nome:'?',obra:o.nome,regional:c?(c.regional||''):'',categoria:o.categoria||'',status:statusEfetivo(o),
+      cliente:c?c.nome:'?',obra:o.nome,regional:c?(c.regional||''):'',categoria:normalizarCodProjetos(o.codProjetos).join(', '),status:statusEfetivo(o),
       inicio:o.dataInicio?fmtData(o.dataInicio):'',previsao:prev?fmtData(prev.toISOString().slice(0,10)):'',
       atraso:da==null?'':da,
       custo:round2(custo),recebido:round2(recebido),negociado:round2(negociado),resultado:round2(negociado-custo),
@@ -934,7 +934,7 @@ async function exportarPorObraExcel(baseLancamentos){
       observacao:String(o.descricao||'').trim(),
     };
   }).sort((a,b)=>Math.abs(b.resultado)-Math.abs(a.resultado));
-  const cab=['Cliente','Obra','Regional','Categoria','Status','Data de Início','Previsão de Término','Atraso (dias; negativo = adiantada)','Custo (R$)','Recebido (R$)','Negociado (R$)','Resultado (R$) = Negociado − Custo','Imposto orçado (%)','Valor orçado (R$)','Custo orçado (R$)','Margem líquida orçada (%)','Margem líquida orçada (R$)','Imposto executado (R$)','Margem líquida executada (%)','Margem líquida executada (R$)','Diferença de margem (p.p.)','Observações da Obra'];
+  const cab=['Cliente','Obra','Regional','Cód. Projeto','Status','Data de Início','Previsão de Término','Atraso (dias; negativo = adiantada)','Custo (R$)','Recebido (R$)','Negociado (R$)','Resultado (R$) = Negociado − Custo','Imposto orçado (%)','Valor orçado (R$)','Custo orçado (R$)','Margem líquida orçada (%)','Margem líquida orçada (R$)','Imposto executado (R$)','Margem líquida executada (%)','Margem líquida executada (R$)','Diferença de margem (p.p.)','Observações da Obra'];
   const dados=linhas.map(x=>[x.cliente,x.obra,x.regional,x.categoria,x.status,x.inicio,x.previsao,x.atraso,x.custo,x.recebido,x.negociado,x.resultado,x.impostoPct,x.valorOrc,x.custoOrc,x.margemOrcPct,x.margemOrcValor,x.impostoExec,x.margemExecPct,x.margemExecValor,x.difPP,x.observacao]);
   const aoa=[cab].concat(dados);
   const ws=XLSX.utils.aoa_to_sheet(aoa);
@@ -1554,7 +1554,7 @@ function renderObras(){
     const previsao=dataPrevistaConclusao(o);
     const semTecnico=obraSemTecnicoHoje(o);
     const avisoTecnico=semTecnico?` <span title="Nenhum técnico alocado hoje" style="color:var(--erro);font-weight:700;">⚠ sem técnico</span>`:'';
-    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}${avisoTecnico}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${previsao?fmtData(previsao):'—'}</td><td>${escapeHtml(o.categoria||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;flex-wrap:wrap;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
+    return `<tr><td>${escapeHtml(c?c.nome:'—')}</td><td>${escapeHtml(o.nome)}</td><td>${escapeHtml(statusEfetivo(o))}${avisoTecnico}</td><td style="${corAtraso}">${escapeHtml(textoAtraso(o))}</td><td>${previsao?fmtData(previsao):'—'}</td><td>${escapeHtml(normalizarCodProjetos(o.codProjetos).join(', ')||'—')}</td><td class="num">${brl(n(o.valorNegociado))}</td><td class="num">${int(qtdLanc)}</td>${admin?`<td style="display:flex;gap:4px;flex-wrap:wrap;"><button class="btn ghost small" data-editar-obra="${escapeHtml(o.id)}" type="button">editar</button>${temTarefasPlanejadas(o)?`<button class="btn ghost small" data-medicoes-obra="${escapeHtml(o.id)}" type="button">medições</button>`:''}</td>`:''}</tr>`;
   }).join(''):`<tr><td colspan="${admin?9:8}" style="padding:14px;color:var(--texto-suave);">Nenhuma obra encontrada.</td></tr>`;
   if(admin){
     tbody.querySelectorAll('[data-editar-obra]').forEach(b=>b.addEventListener('click',()=>abrirModal('obra',b.dataset.editarObra)));
@@ -1663,7 +1663,7 @@ const ESQUEMAS={
   obra:{titulo:'Obra',campos:[
     {chave:'clienteId',label:'Cliente',tipo:'clienteSelect',obrigatorio:true},
     {chave:'nome',label:'Nome da Obra',tipo:'text',obrigatorio:true},
-    {chave:'categoria',label:'Categoria',tipo:'text'},
+    {chave:'codProjetos',label:'Cód. Projeto',tipo:'codProjetos'},
 
     {chave:'dataInicio',label:'Data de Início',tipo:'date',secaoAntes:'Cronograma'},
     {chave:'prazoDias',label:'Prazo Estimado (dias)',tipo:'number'},
@@ -1750,6 +1750,11 @@ function campoHtmlGenerico(campo,valorAtual){
         `<button type="button" class="btn ghost small" id="${idc}__add">+ Registrar pausa</button>`+
       `</div>`+
       `<span class="nota">Cada pausa concluída empurra a data prevista de conclusão pelo tempo que durou.</span>`;
+  }else if(campo.tipo==='codProjetos'){
+    inputHtml=`<div id="${idc}__chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>`+
+      `<div style="display:flex;gap:6px;"><input type="text" id="${idc}__novo" inputmode="numeric" placeholder="Nº do projeto" maxlength="12" style="flex:1;min-width:0;">`+
+      `<button type="button" class="btn ghost small" id="${idc}__add">+ Adicionar</button></div>`+
+      `<span class="nota">Só números. Pode adicionar mais de um código (Enter também adiciona).</span>`;
   }else if(campo.tipo==='premiacaoEditor'){
     inputHtml=`<div id="${idc}__resumo" style="font-size:.82rem;line-height:1.7;margin-bottom:10px;"></div>`+
       `<div id="${idc}__lista"></div>`+
@@ -1965,6 +1970,31 @@ function formatarCPF(v){
 }
 let pausasEmEdicao=[];
 let pagamentosEmEdicao=[];
+let codProjetosEmEdicao=[];
+function normalizarCodProjetos(v){
+  const arr=Array.isArray(v)?v:(v==null||v===''?[]:String(v).split(/[,;\s]+/));
+  const out=[];arr.forEach(x=>{const c=String(x).replace(/\D/g,'');if(c&&!out.includes(c))out.push(c);});
+  return out;
+}
+function renderCodProjetosEditor(){
+  const cont=document.getElementById('campo-modal-codProjetos__chips');
+  if(!cont)return;
+  cont.innerHTML=codProjetosEmEdicao.map((c,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;background:var(--areia-escura);border-radius:14px;padding:3px 6px 3px 10px;font-size:.82rem;font-weight:600;">${escapeHtml(c)}<button type="button" data-rm-cod="${i}" title="Remover" style="border:0;background:none;cursor:pointer;color:var(--ferrugem);font-size:1rem;line-height:1;padding:0 2px;">×</button></span>`).join('')||'<span class="nota">Nenhum código.</span>';
+  cont.querySelectorAll('[data-rm-cod]').forEach(b=>b.addEventListener('click',()=>{codProjetosEmEdicao.splice(Number(b.dataset.rmCod),1);renderCodProjetosEditor();}));
+}
+function ligarCodProjetosEditor(){
+  const inp=document.getElementById('campo-modal-codProjetos__novo'),btn=document.getElementById('campo-modal-codProjetos__add');
+  if(!inp||!btn)return;
+  const adicionar=()=>{
+    const novos=normalizarCodProjetos(inp.value);
+    novos.forEach(c=>{if(!codProjetosEmEdicao.includes(c))codProjetosEmEdicao.push(c);});
+    inp.value='';renderCodProjetosEditor();inp.focus();
+  };
+  inp.addEventListener('input',()=>{inp.value=inp.value.replace(/[^\d,;\s]/g,'');});
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===','){e.preventDefault();adicionar();}});
+  btn.addEventListener('click',adicionar);
+  renderCodProjetosEditor();
+}
 let tarefasEmEdicao={};
 let seedAtualObra=null;
 function sugerirCamposDeTarefas(tarefas){
@@ -2110,6 +2140,7 @@ function abrirModal(entidade,id,seed){
     pausasEmEdicao=(itemExistente&&Array.isArray(itemExistente.pausas))?JSON.parse(JSON.stringify(itemExistente.pausas)):[];
     pagamentosEmEdicao=(itemExistente&&Array.isArray(itemExistente.pagamentosPremiacao))?JSON.parse(JSON.stringify(itemExistente.pagamentosPremiacao)):[];
     tarefasEmEdicao=Object.assign({},(valoresIniciais&&valoresIniciais.tarefas)||{});
+    codProjetosEmEdicao=normalizarCodProjetos(valoresIniciais&&valoresIniciais.codProjetos);
   }
   document.getElementById('campos-modal-registro').innerHTML=esquema.campos.map(campo=>{
     if(campo.tipo==='statusComputado')return campoHtmlGenerico(campo,statusEfetivo(valoresIniciais||{dataInicio:'',prazoDias:null,pausas:[],concluida:false,status:''}));
@@ -2138,6 +2169,7 @@ function abrirModal(entidade,id,seed){
   if(entidade==='obra'){
     renderListaPausasEditor();
     renderTarefasEditor();
+    ligarCodProjetosEditor();
     if(itemExistente&&itemExistente.margemOrcada)ligarAjusteImpostoExecutado(itemExistente.margemOrcada,itemExistente.id);
     const btnRecalcularTarefas=document.getElementById('campo-modal-tarefas__recalcular');
     if(btnRecalcularTarefas)btnRecalcularTarefas.addEventListener('click',()=>{
@@ -2219,6 +2251,11 @@ function coletarCampos(entidade){
     if(campo.tipo==='pausasEditor'){obj[campo.chave]=pausasEmEdicao;return;}
     if(campo.tipo==='tarefasEditor'){obj[campo.chave]=tarefasEmEdicao;return;}
     if(campo.tipo==='premiacaoEditor'){obj[campo.chave]=pagamentosEmEdicao;return;}
+    if(campo.tipo==='codProjetos'){
+      const elNovo=document.getElementById('campo-modal-codProjetos__novo');
+      if(elNovo&&elNovo.value.trim()){normalizarCodProjetos(elNovo.value).forEach(c=>{if(!codProjetosEmEdicao.includes(c))codProjetosEmEdicao.push(c);});elNovo.value='';}
+      obj[campo.chave]=codProjetosEmEdicao.slice();return;
+    }
     if(campo.tipo==='statusComputado'){obj[campo.chave]=statusEfetivoDoFormulario();return;}
     if(campo.tipo==='equipeAcesso'||campo.tipo==='historicoEntrega'||campo.tipo==='comparativoMargem'){return;}
     const el=document.getElementById('campo-modal-'+campo.chave);

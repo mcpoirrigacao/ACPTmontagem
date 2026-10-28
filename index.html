@@ -436,9 +436,13 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
 </div>
 <div class="overlay" id="overlay-registro">
   <div class="box" style="max-width:760px;width:96%;text-align:left;max-height:88vh;overflow-y:auto;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;">
+    <div id="cabecalho-modal-registro" style="display:flex;justify-content:space-between;align-items:center;gap:10px;position:sticky;top:-40px;z-index:5;background:#fff;margin:-40px -32px 16px;padding:40px 32px 10px;border-radius:10px 10px 0 0;">
       <h2 id="titulo-modal-registro" style="margin:0;">Novo Registro</h2>
-      <button class="btn ghost small" id="btn-fechar-modal-registro" type="button">✕ Fechar</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+        <span id="status-modal-registro-topo" style="font-size:.74rem;color:var(--texto-suave);max-width:260px;text-align:right;"></span>
+        <button class="btn primary small" id="btn-salvar-registro-topo" type="button">💾 Salvar</button>
+        <button class="btn ghost small" id="btn-fechar-modal-registro" type="button">✕ Fechar</button>
+      </div>
     </div>
     <div class="grid" id="campos-modal-registro" style="margin-bottom:18px;"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
@@ -2265,6 +2269,11 @@ function coletarCampos(entidade){
   });
   return obj;
 }
+document.getElementById('btn-salvar-registro-topo').addEventListener('click',()=>document.getElementById('btn-salvar-registro').click());
+(function(){
+  const orig=document.getElementById('status-modal-registro'),topo=document.getElementById('status-modal-registro-topo');
+  if(orig&&topo)new MutationObserver(()=>{topo.textContent=orig.textContent;}).observe(orig,{childList:true,characterData:true,subtree:true});
+})();
 document.getElementById('btn-salvar-registro').addEventListener('click',async()=>{
   const esquema=ESQUEMAS[modalEntidade];
   const campos=coletarCampos(modalEntidade);

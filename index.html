@@ -3061,39 +3061,96 @@ document.getElementById('btn-atualizar-obras-orcamento').addEventListener('click
 });
 document.getElementById('btn-fechar-atualizar-obras').addEventListener('click',()=>{document.getElementById('overlay-atualizar-obras').style.display='none';});
 async function graphGetJsonEtag(fp){const t=await getGraphToken();if(!t)return {ok:false};const base=await spDriveUrl(fp);if(!base)return {ok:false};try{const m=await fetch(base,{headers:{Authorization:'Bearer '+t}});if(m.status===404)return {ok:true,missing:true,data:null,etag:null};if(!m.ok)return {ok:false};const mj=await m.json();const etag=mj.eTag||mj.cTag||m.headers.get('ETag')||null;const c=await fetch(base+':/content',{headers:{Authorization:'Bearer '+t}});if(!c.ok)return {ok:false};return {ok:true,data:await c.json(),etag};}catch(e){return {ok:false};}}
-async function graphPutEtag(fp,body,etag){const t=await getGraphToken();if(!t)return {ok:false,status:0};const base=await spDriveUrl(fp);if(!base)return {ok:false,status:0};const h={Authorization:'Bearer '+t,'Content-Type':'application/octet-stream'};if(etag)h['If-Match']=etag;try{const r=await fetch(base+':/content',{method:'PUT',headers:h,body});let ne=r.headers.get('ETag');if(r.ok){try{const j=await r.json();ne=j.eTag||j.cTag||ne;}catch(e){}}return {ok:r.ok,status:r.status,etag:ne};}catch(e){return {ok:false,status:0};}}
+async function graphPutEtag(fp,body,etag){const t=await getGraphToken();if(!t)return {ok:false,status:0};const base=await spDriveUrl(fp);if(!base)return {ok:false,status:0};const h={Authorization:'Bearer '+t,'Content-Type':'application/octet-stream'};if(etag)h['If-Match']=etag;/* sem ETag: só CRIA o arquivo; se já existir o SharePoint recusa (409) e o app faz a mesclagem, em vez de sobrescrever tudo */try{const r=await fetch(base+':/content'+(etag?'':'?@microsoft.graph.conflictBehavior=fail'),{method:'PUT',headers:h,body});let ne=r.headers.get('ETag');if(r.ok){try{const j=await r.json();ne=j.eTag||j.cTag||ne;}catch(e){}}return {ok:r.ok,status:r.status,etag:ne};}catch(e){return {ok:false,status:0};}}
 let _pastaOk=false;
 async function ensureFolder(){if(_pastaOk)return true;const t=await getGraphToken();if(!t)return false;const base=await spDriveUrl(`/${SP_BIBLIOTECA}`);if(!base)return false;try{await fetch(base+':/children',{method:'POST',headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},body:JSON.stringify({name:SP_PASTA,folder:{},'@microsoft.graph.conflictBehavior':'fail'})});}catch(e){}_pastaOk=true;return true;}
 
 async function carregarColecao(nomeArquivo){
   const r=await graphGetJsonEtag(spPath(nomeArquivo));
-  if(!r.ok){ultimoErro='Falha ao carregar '+nomeArquivo;return {dados:null,etag:null};}
-  if(r.missing)return {dados:null,etag:null};
+  if(!r.ok){ultimoErro='Falha ao carregar '+nomeArquivo;return {dados:null,etag:null,falhou:true};}
+  if(r.missing)return {dados:null,etag:null,ausente:true};
   return {dados:r.data,etag:r.etag};
 }
-async function salvarColecao(qual){
-  await ensureFolder();
-  const arquivo=qual==='clientes'?CLIENTES_FILE:qual==='obras'?OBRAS_FILE:qual==='tecnicos'?TECNICOS_FILE:qual==='alocacoes'?ALOCACOES_FILE:LANCAMENTOS_FILE;
-  function getArr(){return qual==='clientes'?clientes:qual==='obras'?obras:qual==='tecnicos'?tecnicos:qual==='alocacoes'?alocacoes:lancamentos;}
-  function setArr(v){if(qual==='clientes')clientes=v;else if(qual==='obras')obras=v;else if(qual==='tecnicos')tecnicos=v;else if(qual==='alocacoes')alocacoes=v;else lancamentos=v;}
-  let etagAtual=qual==='clientes'?etagClientes:qual==='obras'?etagObras:qual==='tecnicos'?etagTecnicos:qual==='alocacoes'?etagAlocacoes:etagLancamentos;
-  let ok=false,tent=0;
-  while(tent<5&&!ok){
-    tent++;
-    const res=await graphPutEtag(spPath(arquivo),new TextEncoder().encode(JSON.stringify({versao:1,itens:getArr()})),etagAtual);
-    if(res.ok){etagAtual=res.etag||etagAtual;ok=true;}
-    else if(res.status===412||res.status===409){
-      const servidor=await carregarColecao(arquivo);
-      if(servidor.dados&&Array.isArray(servidor.dados.itens)){
-        const porId={};servidor.dados.itens.forEach(x=>porId[x.id]=x);
-        getArr().forEach(x=>porId[x.id]=x);
-        setArr(Object.values(porId));
-        etagAtual=servidor.etag;
+/* ===== SINCRONIZAÇÃO SEGURA =====
+   _base[qual]  = fotografia (id -> JSON) da versão do SharePoint que este navegador carregou/gravou por último.
+   _carregadoOk = a coleção foi lida do SharePoint com sucesso (sem isso NÃO se grava: evita sobrescrever o arquivo com lista vazia).
+   Conflito (412/409) => mesclagem em 3 vias (base × servidor × local): só o que EU alterei/criei/excluí é aplicado
+   por cima da versão do servidor; o que outro usuário gravou nesse meio tempo é preservado. */
+const COLECOES=['clientes','obras','lancamentos','tecnicos','alocacoes'];
+const _base={clientes:null,obras:null,lancamentos:null,tecnicos:null,alocacoes:null};
+const _carregadoOk={clientes:false,obras:false,lancamentos:false,tecnicos:false,alocacoes:false};
+let _salvando=0;
+function snapshotColecao(arr){const m={};(arr||[]).forEach(x=>{if(x&&x.id!=null)m[x.id]=JSON.stringify(x);});return m;}
+function mesclarTresVias(base,itensServidor,itensLocais){
+  base=base||{};
+  const srv={},ordem=[];
+  (itensServidor||[]).forEach(x=>{if(x&&x.id!=null){srv[x.id]=x;ordem.push(x.id);}});
+  const loc={};(itensLocais||[]).forEach(x=>{if(x&&x.id!=null)loc[x.id]=x;});
+  const out={};
+  ordem.forEach(id=>{out[id]=srv[id];});
+  Object.keys(base).forEach(id=>{if(!(id in loc))delete out[id];});               // eu excluí
+  (itensLocais||[]).forEach(l=>{
+    if(!l||l.id==null)return;
+    const bs=base[l.id];
+    if(bs===undefined){out[l.id]=l;if(!ordem.includes(l.id))ordem.push(l.id);return;} // novo (criado por mim)
+    if(JSON.stringify(l)===bs)return;                                                   // não mexi: vale o servidor (ou continua excluído lá)
+    const b=JSON.parse(bs),sv=srv[l.id];
+    if(!sv){out[l.id]=l;if(!ordem.includes(l.id))ordem.push(l.id);return;}              // alterei algo que outro excluiu: mantém o meu
+    const m=Object.assign({},sv);
+    Object.keys(l).forEach(k=>{if(JSON.stringify(l[k])!==JSON.stringify(b[k]))m[k]=l[k];});   // só os campos que eu mudei
+    Object.keys(b).forEach(k=>{if(!(k in l))delete m[k];});
+    out[l.id]=m;
+  });
+  const vistos=new Set(),res=[];
+  ordem.forEach(id=>{if(id in out&&!vistos.has(id)){vistos.add(id);res.push(out[id]);}});
+  Object.keys(out).forEach(id=>{if(!vistos.has(id)){vistos.add(id);res.push(out[id]);}});
+  return res;
+}
+const _aguardar=ms=>new Promise(r=>setTimeout(r,ms));
+async function salvarColecao(qual,opcoes){
+  opcoes=opcoes||{};
+  _salvando++;
+  try{
+    // não grava no meio de uma leitura (as listas locais seriam trocadas durante o envio)
+    let espera=0;while(carregando&&espera<20000){await _aguardar(100);espera+=100;}
+    await ensureFolder();
+    const arquivo=qual==='clientes'?CLIENTES_FILE:qual==='obras'?OBRAS_FILE:qual==='tecnicos'?TECNICOS_FILE:qual==='alocacoes'?ALOCACOES_FILE:LANCAMENTOS_FILE;
+    const getArr=()=>qual==='clientes'?clientes:qual==='obras'?obras:qual==='tecnicos'?tecnicos:qual==='alocacoes'?alocacoes:lancamentos;
+    const setArr=v=>{if(qual==='clientes')clientes=v;else if(qual==='obras')obras=v;else if(qual==='tecnicos')tecnicos=v;else if(qual==='alocacoes')alocacoes=v;else lancamentos=v;};
+    const getEtag=()=>qual==='clientes'?etagClientes:qual==='obras'?etagObras:qual==='tecnicos'?etagTecnicos:qual==='alocacoes'?etagAlocacoes:etagLancamentos;
+    const setEtag=e=>{if(qual==='clientes')etagClientes=e;else if(qual==='obras')etagObras=e;else if(qual==='tecnicos')etagTecnicos=e;else if(qual==='alocacoes')etagAlocacoes=e;else etagLancamentos=e;};
+    // 1) nunca gravar sem ter lido o arquivo do SharePoint com sucesso
+    if(!_carregadoOk[qual]&&!opcoes.substituir){
+      ultimoErro='Dados ainda não carregados do SharePoint';
+      toast('Os dados ainda não foram carregados do SharePoint. Clique em atualizar (↻), aguarde "atualizado" e tente de novo. Nada foi gravado.');
+      return false;
+    }
+    // 2) trava de segurança: perder mais de 1 registro de uma vez, em relação ao que foi lido, não é uma edição normal
+    const nBase=Object.keys(_base[qual]||{}).length;
+    if(!opcoes.substituir&&nBase>1&&getArr().length<nBase-1){
+      ultimoErro='Gravação bloqueada: a lista local tem '+getArr().length+' registros e o SharePoint tinha '+nBase;
+      toast('Gravação bloqueada por segurança: a lista local ficou menor que a do SharePoint. Atualize (↻) e refaça a alteração.');
+      return false;
+    }
+    let ok=false,tent=0;
+    while(tent<6&&!ok){
+      tent++;
+      const etagAtual=getEtag();
+      const res=await graphPutEtag(spPath(arquivo),new TextEncoder().encode(JSON.stringify({versao:1,itens:getArr()})),etagAtual);
+      if(res.ok){setEtag(res.etag||etagAtual);_base[qual]=snapshotColecao(getArr());_carregadoOk[qual]=true;ok=true;}
+      else if(res.status===412||res.status===409){
+        const servidor=await carregarColecao(arquivo);
+        if(servidor.falhou)break;
+        if(servidor.ausente){setEtag(null);continue;}                                  // arquivo sumiu: recria com o que temos
+        if(servidor.dados&&Array.isArray(servidor.dados.itens)){
+          setArr(mesclarTresVias(_base[qual],servidor.dados.itens,getArr()));
+          setEtag(servidor.etag);
+          _base[qual]=snapshotColecao(servidor.dados.itens);                          // nova base = o que o servidor tinha
+        }else break;
       }else break;
-    }else break;
-  }
-  if(qual==='clientes')etagClientes=etagAtual;else if(qual==='obras')etagObras=etagAtual;else if(qual==='tecnicos')etagTecnicos=etagAtual;else if(qual==='alocacoes')etagAlocacoes=etagAtual;else etagLancamentos=etagAtual;
-  return ok;
+    }
+    return ok;
+  }finally{_salvando--;}
 }
 let etagTarefasTmo=null;
 async function carregarTarefasTmo(){
@@ -3118,19 +3175,32 @@ async function salvarTarefasTmo(){
 let carregando=false;
 function setSyncStatus(t,c){const el=document.getElementById('sync-status');if(!el)return;el.textContent=t;el.className='sync-status '+(c||'');el.style.display=t?'block':'none';}
 async function carregarDados(silencioso){
-  if(!msAccount||carregando)return;
+  if(!msAccount||carregando||_salvando>0)return;
   carregando=true;setSyncStatus('☁ carregando…','saving');
-  const [rc,ro,rl,rt,ra]=await Promise.all([carregarColecao(CLIENTES_FILE),carregarColecao(OBRAS_FILE),carregarColecao(LANCAMENTOS_FILE),carregarColecao(TECNICOS_FILE),carregarColecao(ALOCACOES_FILE)]);
-  clientes=(rc.dados&&Array.isArray(rc.dados.itens))?rc.dados.itens:[];
-  obras=(ro.dados&&Array.isArray(ro.dados.itens))?ro.dados.itens:[];
-  lancamentos=(rl.dados&&Array.isArray(rl.dados.itens))?rl.dados.itens:[];
-  tecnicos=(rt.dados&&Array.isArray(rt.dados.itens))?rt.dados.itens:[];
-  alocacoes=(ra.dados&&Array.isArray(ra.dados.itens))?ra.dados.itens:[];
-  etagClientes=rc.etag;etagObras=ro.etag;etagLancamentos=rl.etag;etagTecnicos=rt.etag;etagAlocacoes=ra.etag;
-  await carregarTarefasTmo();
-  ultimaSync=new Date().toISOString();saveCache();
-  carregando=false;setSyncStatus('☁ atualizado','ok');
-  if(!silencioso)toast(`Dados atualizados (${clientes.length} clientes, ${obras.length} obras, ${lancamentos.length} lançamentos, ${tecnicos.length} técnicos).`);
+  try{
+    const [rc,ro,rl,rt,ra]=await Promise.all([carregarColecao(CLIENTES_FILE),carregarColecao(OBRAS_FILE),carregarColecao(LANCAMENTOS_FILE),carregarColecao(TECNICOS_FILE),carregarColecao(ALOCACOES_FILE)]);
+    if(_salvando>0){carregando=false;return;}                           // uma gravação começou durante a leitura: descarta esta leitura
+    const falhas=[];
+    const aplicar=(qual,r,setArr,setEtag)=>{
+      if(r.falhou){falhas.push(qual);return;}                          // falha de leitura NÃO é "lista vazia": mantém o que já está na tela
+      const itens=(r.dados&&Array.isArray(r.dados.itens))?r.dados.itens:[];
+      setArr(itens);setEtag(r.etag);_base[qual]=snapshotColecao(itens);_carregadoOk[qual]=true;
+    };
+    aplicar('clientes',rc,v=>clientes=v,e=>etagClientes=e);
+    aplicar('obras',ro,v=>obras=v,e=>etagObras=e);
+    aplicar('lancamentos',rl,v=>lancamentos=v,e=>etagLancamentos=e);
+    aplicar('tecnicos',rt,v=>tecnicos=v,e=>etagTecnicos=e);
+    aplicar('alocacoes',ra,v=>alocacoes=v,e=>etagAlocacoes=e);
+    await carregarTarefasTmo();
+    if(falhas.length){
+      setSyncStatus('⚠ falha ao ler: '+falhas.join(', ')+' — não grave até atualizar','err');
+      toast('Não consegui ler '+falhas.join(', ')+' do SharePoint. Por segurança, essas listas não podem ser gravadas até uma atualização bem-sucedida (↻).');
+    }else{
+      ultimaSync=new Date().toISOString();saveCache();
+      setSyncStatus('☁ atualizado','ok');
+      if(!silencioso)toast(`Dados atualizados (${clientes.length} clientes, ${obras.length} obras, ${lancamentos.length} lançamentos, ${tecnicos.length} técnicos).`);
+    }
+  }finally{carregando=false;}
   renderAll();
 }
 let _pollTimer=null;
@@ -3343,7 +3413,7 @@ async function executarMigracao(){
   listasConfig.regionais=uni(listasConfig.regionais,clientes.map(c=>c.regional).filter(Boolean));
   listasConfig.categorias=uni(listasConfig.categorias,lancamentos.map(l=>l.categoria).filter(Boolean));
   statusEl.textContent='⏳ salvando…';
-  const ok1=await salvarColecao('clientes'),ok2=await salvarColecao('obras'),ok3=await salvarColecao('lancamentos'),ok4=await salvarListas();
+  const ok1=await salvarColecao('clientes',{substituir:true}),ok2=await salvarColecao('obras',{substituir:true}),ok3=await salvarColecao('lancamentos',{substituir:true}),ok4=await salvarListas();
   if(ok1&&ok2&&ok3&&ok4){
     saveCache();
     statusEl.textContent=`✓ Migração concluída: ${clientes.length} cliente(s), ${obras.length} obra(s), ${lancamentos.length} lançamento(s). A lista antiga não foi alterada.`;
@@ -3427,6 +3497,7 @@ async function initAuth(){
 function updateLoginUI(){const lbl=document.getElementById('ms-login-label'),info=document.getElementById('ms-user-info');if(msAccount){lbl.textContent='✓ '+(msAccount.name||msAccount.username);info.textContent='SharePoint › '+SP_PASTA;info.style.display='block';}else{lbl.textContent='🔑 Entrar com Microsoft';info.style.display='none';}}
 function limparDadosLocaisAoSair(){
   clientes=[];obras=[];lancamentos=[];tecnicos=[];alocacoes=[];
+  COLECOES.forEach(q=>{_carregadoOk[q]=false;_base[q]=null;});
   listasConfig={status:['Em andamento','Concluída','Pausada'],regionais:[],categorias:[],categoriasSemCusto:[]};
   acesso={emailsAutorizados:[],emailsComuns:[],emailsAgenda:[]};
   ultimaSync=null;

@@ -348,13 +348,6 @@ function loadSheetJs(){return new Promise((res,rej)=>{if(window.XLSX){res();retu
       </div>
     </div>
     <div class="card somente-admin">
-      <h3>Migração da lista antiga</h3>
-      <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Lê todos os registros da lista "Montagem Geral MCPO" no SharePoint e cria Clientes, Obras (uma "Obra Principal" por cliente, herdando o status do lançamento mais recente) e Lançamentos aqui. A lista original <b>nunca é apagada ou alterada</b> por este botão — a desativação dela é uma decisão sua, feita manualmente no SharePoint, depois de conferir que a migração trouxe tudo certo.</p>
-      <button class="btn primary" id="btn-migrar" type="button">Migrar da lista do SharePoint</button>
-      <a href="https://maqcampoirrigacao.sharepoint.com/sites/ControleObra/Lists/Montagem%20Geral%20%20MCPO/AllItems.aspx" target="_blank" rel="noopener" class="btn ghost small" style="margin-left:8px;">Ver lista original ↗</a>
-      <div id="status-migracao" style="font-size:.8rem;color:var(--texto-suave);margin-top:10px;"></div>
-    </div>
-    <div class="card somente-admin">
       <h3>Listas Configuráveis</h3>
       <p style="font-size:.82rem;color:var(--texto-suave);margin:0 0 12px;">Itens que aparecem como opções nos formulários de Clientes (Regional) e Lançamentos (Categoria). O Status das Obras agora é calculado automaticamente pelas datas — veja em Obras. Marque "não compõe custo" numa categoria pra ela continuar existindo como lançamento normal, mas sair do Custo/Resultado do Painel, Regional e do gráfico de Custo por Categoria.</p>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));">
@@ -3297,132 +3290,6 @@ document.getElementById('btn-add-regional').addEventListener('click',()=>adicion
 document.getElementById('btn-add-categoria').addEventListener('click',()=>adicionarNaLista('categorias','inp-add-categoria'));
 
 
-const OLD_SP_HOSTNAME='maqcampoirrigacao.sharepoint.com';
-const OLD_SP_SITE_PATH='/sites/ControleObra';
-const OLD_LISTA_NOME='Montagem Geral MCPO';
-let _oldSiteId=null;
-async function getOldSiteId(){if(_oldSiteId)return _oldSiteId;const t=await getGraphToken();if(!t)return null;try{const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${OLD_SP_HOSTNAME}:${OLD_SP_SITE_PATH}`,{headers:{Authorization:'Bearer '+t}});if(!r.ok)return null;const d=await r.json();_oldSiteId=d.id;return _oldSiteId;}catch(e){return null;}}
-async function getOldListId(s,t){
-  try{
-    const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${s}/lists?$select=id,displayName,name`,{headers:{Authorization:'Bearer '+t}});
-    if(!r.ok)return null;
-    const d=await r.json();
-    const alvo=normNome(OLD_LISTA_NOME);
-    const achada=(d.value||[]).find(l=>normNome(l.displayName)===alvo||normNome(l.name)===alvo);
-    return achada?achada.id:null;
-  }catch(e){return null;}
-}
-async function getOldListColumns(lid,s,t){
-  try{
-    let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/columns?$top=200`;
-    let out=[];
-    while(url){
-      const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
-      if(!r.ok)break;
-      const d=await r.json();
-      out=out.concat(d.value||[]);
-      url=d['@odata.nextLink']||null;
-    }
-    return out.filter(c=>!c.hidden);
-  }catch(e){return [];}
-}
-async function getOldListItems(lid,s,t,colunasAntigas){
-  const camposSel=colunasAntigas.map(c=>c.name).join(',');
-  let url=`https://graph.microsoft.com/v1.0/sites/${s}/lists/${lid}/items?expand=fields(select=${camposSel})&$top=200`;
-  let out=[],paginas=0;
-  while(url&&paginas<30){
-    const r=await fetch(url,{headers:{Authorization:'Bearer '+t}});
-    if(!r.ok)break;
-    const d=await r.json();
-    out=out.concat((d.value||[]).map(it=>({id:it.id,fields:it.fields||{}})));
-    url=d['@odata.nextLink']||null;
-    paginas++;
-  }
-  return out;
-}
-function migrarDados(colunasAntigas,itensAntigos){
-  function achar(regexList){for(const re of regexList){const c=colunasAntigas.find(c=>re.test((c.displayName||'').trim()));if(c)return c;}return null;}
-  const cCliente=achar([/^cliente$/i]),cRegional=achar([/^regional$/i]),cTipo=achar([/^tipo$/i]),cValor=achar([/^valor$/i]),
-        cQtd=achar([/^quantidade\s*$/i]),cCategoria=achar([/^categoria$/i]),cData=achar([/^data$/i]),cDescricao=achar([/descri/i]),cStatus=achar([/^status$/i]);
-  const clientesPorNome={},clientesArr=[],obrasPorCliente={},obrasArr=[],lancamentosArr=[];
-  const maisRecentePorCliente={};
-  itensAntigos.forEach(it=>{
-    if(!cCliente)return;
-    const nome=String(it.fields[cCliente.name]||'').trim();if(!nome)return;
-    const dataItem=cData?new Date(it.fields[cData.name]):null;
-    const dataOrd=(dataItem&&!isNaN(dataItem))?dataItem.getTime():null;
-    const atual=maisRecentePorCliente[nome];
-    if(!atual){maisRecentePorCliente[nome]={item:it,dataOrd};return;}
-    if(dataOrd!=null&&(atual.dataOrd==null||dataOrd>atual.dataOrd)){maisRecentePorCliente[nome]={item:it,dataOrd};}
-    else if(dataOrd==null&&atual.dataOrd==null&&Number(it.id)>Number(atual.item.id)){maisRecentePorCliente[nome]={item:it,dataOrd:null};}
-  });
-  itensAntigos.forEach(it=>{
-    const nomeCliente=cCliente?String(it.fields[cCliente.name]||'').trim():'';
-    if(!nomeCliente)return;
-    let cliente=clientesPorNome[nomeCliente];
-    if(!cliente){
-      cliente={id:gerarId('c'),nome:nomeCliente,regional:cRegional?String(it.fields[cRegional.name]||''):'',contato:'',observacoes:'',criadoEm:new Date().toISOString()};
-      clientesPorNome[nomeCliente]=cliente;clientesArr.push(cliente);
-    }
-    let obra=obrasPorCliente[cliente.id];
-    if(!obra){
-      const infoRecente=maisRecentePorCliente[nomeCliente];
-      const statusAtual=(cStatus&&infoRecente)?infoRecente.item.fields[cStatus.name]:'';
-      obra={id:gerarId('o'),clienteId:cliente.id,nome:'Obra Principal',status:statusAtual||'',categoria:'',dataInicio:'',prazoDias:null,pausas:[],concluida:false,dataConclusao:null,valorNegociado:0,qtdLances:null,qtdBombeamentos:null,adutora:null,descricao:'Migrada automaticamente da lista SharePoint.',criadoEm:new Date().toISOString()};
-      obrasPorCliente[cliente.id]=obra;obrasArr.push(obra);
-    }
-    const tipoItem=cTipo?String(it.fields[cTipo.name]||'').toUpperCase().trim():'';
-    if(tipoItem==='NEGOCIADO'){
-      obra.valorNegociado=n(obra.valorNegociado)+(cValor?n(it.fields[cValor.name]):0);
-      return; // valor negociado vira campo da Obra, não gera lançamento
-    }
-    lancamentosArr.push({
-      id:gerarId('l'),obraId:obra.id,
-      tipo:cTipo?String(it.fields[cTipo.name]||''):'',
-      categoria:cCategoria?String(it.fields[cCategoria.name]||''):'',
-      valor:cValor?n(it.fields[cValor.name]):0,
-      quantidade:cQtd?it.fields[cQtd.name]:null,
-      data:cData?it.fields[cData.name]:null,
-      descricao:cDescricao?String(it.fields[cDescricao.name]||''):'',
-      criadoEm:new Date().toISOString(),
-    });
-  });
-  return {clientes:clientesArr,obras:obrasArr,lancamentos:lancamentosArr};
-}
-async function executarMigracao(){
-  if(!souAdmin()){toast('Somente administradores podem migrar.');return;}
-  const statusEl=document.getElementById('status-migracao');
-  if(clientes.length||obras.length||lancamentos.length){
-    if(!(await confirmarAcao('Já existem dados aqui (Clientes/Obras/Lançamentos). Migrar de novo vai SOBRESCREVER tudo que já está salvo. Continuar?')))return;
-  }else{
-    if(!(await confirmarAcao('Isso vai ler todos os registros da lista "Montagem Geral MCPO" e criar Clientes/Obras/Lançamentos aqui. A lista original NÃO será apagada nem alterada. Continuar?')))return;
-  }
-  statusEl.textContent='⏳ lendo a lista antiga…';
-  const t=await getGraphToken();
-  const s=await getOldSiteId();
-  if(!t||!s){statusEl.textContent='⚠ não consegui acessar o site da lista antiga. Confira o login e tente de novo.';return;}
-  const lid=await getOldListId(s,t);
-  if(!lid){statusEl.textContent='⚠ não encontrei a lista "'+OLD_LISTA_NOME+'" no site '+OLD_SP_SITE_PATH+'.';return;}
-  const colunasAntigas=await getOldListColumns(lid,s,t);
-  if(!colunasAntigas.length){statusEl.textContent='⚠ não consegui ler as colunas da lista antiga.';return;}
-  const itensAntigos=await getOldListItems(lid,s,t,colunasAntigas);
-  statusEl.textContent=`⏳ migrando ${itensAntigos.length} registro(s)…`;
-  const resultado=migrarDados(colunasAntigas,itensAntigos);
-  clientes=resultado.clientes;obras=resultado.obras;lancamentos=resultado.lancamentos;
-  const uni=(a,b)=>Array.from(new Set([...(a||[]),...(b||[])]));
-  listasConfig.regionais=uni(listasConfig.regionais,clientes.map(c=>c.regional).filter(Boolean));
-  listasConfig.categorias=uni(listasConfig.categorias,lancamentos.map(l=>l.categoria).filter(Boolean));
-  statusEl.textContent='⏳ salvando…';
-  const ok1=await salvarColecao('clientes',{substituir:true}),ok2=await salvarColecao('obras',{substituir:true}),ok3=await salvarColecao('lancamentos',{substituir:true}),ok4=await salvarListas();
-  if(ok1&&ok2&&ok3&&ok4){
-    saveCache();
-    statusEl.textContent=`✓ Migração concluída: ${clientes.length} cliente(s), ${obras.length} obra(s), ${lancamentos.length} lançamento(s). A lista antiga não foi alterada.`;
-    toast('Migração concluída.');renderAll();
-  }else{
-    statusEl.textContent='⚠ migração parcial — nem tudo foi salvo. Confira antes de continuar e tente "Migrar" de novo se precisar.';
-  }
-}
-document.getElementById('btn-migrar').addEventListener('click',executarMigracao);
 
 /* ==================== CONTROLE DE ACESSO (admin/comum) ==================== */
 function emailAtual(){return msAccount?(msAccount.username||'').toLowerCase():'';}
@@ -3439,12 +3306,13 @@ var MCPO_CFG = {
   ancora: 'lista-comuns',
   podeGerir: ()=>nivelAcesso()==='admin'
 };
-/* ===================== MCPO · ACESSO PADRONIZADO (v1) =====================
+/* ===================== MCPO · ACESSO PADRONIZADO (v2) =====================
    Igual em todos os apps MCPO. Só o bloco MCPO_CFG (logo acima) muda de app para app.
    1) Funções do app no Azure (registro "MCPO API Github") têm prioridade sobre as listas de e-mail.
    2) Quem está nas listas recebe permissão direta na pasta do app no SharePoint (editar ou ler);
       quem sai das listas perde essa permissão. O app anota o que liberou em _mcpo_permissoes.json
-      e só retira o que ele mesmo liberou. Em pastas de outros apps (leitura), nunca retira.
+      e só retira o que ele mesmo liberou. Em pastas de outros apps (leitura) também retira, menos de quem
+      o app dono da pasta ainda libera. Se alguém perder acesso por engano, "Sincronizar" devolve.
    Usa o login do admin com Sites.ReadWrite.All (sem permissão nova no Azure). */
 function rolesAtuais(){
   const r = (typeof msAccount!=='undefined' && msAccount && msAccount.idTokenClaims && msAccount.idTokenClaims.roles) || [];
@@ -3524,10 +3392,15 @@ async function _mcpoSincronizar(forcar){
       const r=await mcpoConceder(tk,p.url,em,papel);
       if(r.ok){ if(tem[em]!==papel) lib++; tem[em]=papel; mudou=true; } else falhas.push(em+' ('+r.msg+')');
     }
+    let doDono=null;   // pasta de outro app: não retira quem o app dono da pasta ainda libera
     for(const em of Object.keys(tem)){
       if(q[em]) continue;
-      if(p.propria){ const r=await mcpoRetirar(tk,p.url,em); if(!r.ok){ falhas.push(em+' ('+r.msg+')'); continue; } ret++; }
-      delete tem[em]; mudou=true;   // pasta de outro app: só esquece, não retira
+      if(!p.propria){
+        if(doDono===null){ doDono={}; try{ const r=await fetch(_mcpoAcao(_mcpoFilho(p.url,MCPO_REG),'content'),{headers:{Authorization:'Bearer '+tk},cache:'no-store'}); if(r.ok){ const j=await r.json(); doDono=(j&&j.pastas&&j.pastas.propria)||{}; } }catch(e){} }
+        if(doDono[em]){ delete tem[em]; mudou=true; continue; }
+      }
+      const r=await mcpoRetirar(tk,p.url,em); if(!r.ok){ falhas.push(em+' ('+r.msg+')'); continue; }
+      ret++; delete tem[em]; mudou=true;
     }
   }
   if(mudou){
